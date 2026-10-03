@@ -1,0 +1,1071 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="color-scheme" content="dark light" />
+<title>灵感熔炉 · insprira</title>
+<link rel="icon" href="data:," />
+<script>
+  // 提前应用主题，避免 FOUC；详细逻辑在 js/theme.js
+  (function () {
+    try {
+      var stored = localStorage.getItem('furnace.theme');
+      var theme = stored ? JSON.parse(stored) : null;
+      if (theme !== 'dark' && theme !== 'light') {
+        theme = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark';
+      }
+      document.documentElement.setAttribute('data-theme', theme);
+      document.documentElement.style.colorScheme = theme;
+    } catch (e) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    }
+  })();
+</script>
+<script src="vendor/chart.umd.min.js" defer></script>
+<script src="vendor/lucide.min.js" defer></script>
+<script src="vendor/marked.min.js" defer></script>
+<script src="vendor/purify.min.js" defer></script>
+<link rel="stylesheet" href="css/tailwind.css" />
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body class="overflow-x-hidden">
+
+<!-- ============= 登录页 ============= -->
+<div id="page-login" class="page active">
+  <div class="min-h-screen flex items-center justify-center p-4 relative">
+    <button class="theme-toggle absolute top-4 right-4" data-action="toggleTheme" title="切换主题">
+      <i data-lucide="moon" class="w-4 h-4 icon-moon"></i>
+      <i data-lucide="sun" class="w-4 h-4 icon-sun"></i>
+    </button>
+    <div class="w-full max-w-md">
+      <div class="text-center mb-8">
+        <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 mb-4 shadow-lg">
+          <i data-lucide="flame" class="w-9 h-9 text-white"></i>
+        </div>
+        <h1 class="text-3xl font-bold gradient-text mb-2">灵感熔炉</h1>
+        <p class="text-sm text-gray-400">自媒体一站式灵感 · 追踪 · 创作工作台</p>
+      </div>
+      <div class="glass-strong rounded-2xl p-8">
+        <h2 class="text-lg font-semibold mb-6 flex items-center gap-2">
+          <i data-lucide="lock" class="w-4 h-4 text-purple-400"></i>
+          登录
+        </h2>
+        <form id="login-form" class="space-y-4" autocomplete="off" onsubmit="return false">
+          <div>
+            <label class="text-xs text-gray-400 mb-1.5 block">用户名</label>
+            <input class="input" id="loginUser" name="username" autocomplete="username" placeholder="admin" />
+          </div>
+          <div>
+            <label class="text-xs text-gray-400 mb-1.5 block">密码</label>
+            <input class="input" type="password" id="loginPass" name="furnace_login_password" autocomplete="new-password" placeholder="请输入密码" value="" />
+          </div>
+          <button type="submit" class="btn btn-primary w-full justify-center py-2.5" data-action="enterApp">
+            <i data-lucide="log-in" class="w-4 h-4"></i>进入熔炉
+          </button>
+          <div class="text-center text-[11px] text-gray-500 mt-2">首次登录后请在「账户与安全」修改密码</div>
+        </form>
+      </div>
+      <p class="text-center text-xs text-gray-600 mt-6" data-app-footer>Powered by RedFoxHub</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============= 主应用 ============= -->
+<div id="page-app" class="page">
+  <div class="flex min-h-screen app-shell">
+    <div id="sidebar-overlay" class="fixed inset-0 bg-black/60 z-40 hidden" data-action="closeMobileSidebar"></div>
+    <aside id="app-sidebar" class="w-60 border-r border-white/5 flex flex-col bg-black/20">
+      <div class="p-5 border-b border-white/5 flex items-center justify-between">
+        <div class="flex items-center gap-2.5 sidebar-brand">
+          <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
+            <i data-lucide="flame" class="w-5 h-5 text-white"></i>
+          </div>
+          <div class="sidebar-brand-text">
+            <div class="font-bold text-sm">灵感熔炉</div>
+            <div class="text-[10px] text-gray-500" data-app-version>加载中…</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-1 desktop-only">
+          <button class="theme-toggle" data-action="toggleTheme" title="切换主题">
+            <i data-lucide="moon" class="w-4 h-4 icon-moon"></i>
+            <i data-lucide="sun" class="w-4 h-4 icon-sun"></i>
+          </button>
+          <button class="btn sidebar-toggle-btn p-1.5 bg-white/10 border border-white/20 text-white hover:bg-white/20 hover:text-white shadow-sm" data-action="toggleSidebar" title="收起/展开侧边栏">
+            <i data-lucide="panel-left-close" class="w-5 h-5 sidebar-collapse-icon"></i>
+          </button>
+        </div>
+        <button class="theme-toggle mobile-only" data-action="toggleTheme" title="切换主题">
+          <i data-lucide="moon" class="w-4 h-4 icon-moon"></i>
+          <i data-lucide="sun" class="w-4 h-4 icon-sun"></i>
+        </button>
+      </div>
+      <nav class="flex-1 p-3 space-y-1 overflow-y-auto">
+        <div class="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 nav-group-label">主工作区</div>
+        <a class="nav-item flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm" data-page="dashboard" data-action="gotoPage">
+          <i data-lucide="layout-dashboard" class="w-4 h-4"></i><span class="nav-text">运营总览</span>
+        </a>
+        <a class="nav-item flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm" data-page="hotlist" data-action="gotoPage">
+          <i data-lucide="flame" class="w-4 h-4"></i><span class="nav-text">热榜</span>
+          <span class="ml-auto pill pill-hot nav-badge">实时</span>
+        </a>
+        <a class="nav-item flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm" data-page="inspiration" data-action="gotoPage">
+          <i data-lucide="lightbulb" class="w-4 h-4"></i><span class="nav-text">灵感</span>
+          <span class="ml-auto text-[10px] text-gray-500 nav-badge" id="nav-inspiration-count">0</span>
+        </a>
+        <a class="nav-item flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm" data-page="search" data-action="gotoPage">
+          <i data-lucide="search" class="w-4 h-4"></i><span class="nav-text">搜索</span>
+        </a>
+        <div class="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 mt-4 nav-group-label">数据资产</div>
+        <a class="nav-item flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm" data-page="tracker" data-action="gotoPage">
+          <i data-lucide="users" class="w-4 h-4"></i><span class="nav-text">账号追踪</span>
+          <span class="ml-auto text-[10px] text-gray-500 nav-badge" id="nav-tracker-count">0</span>
+        </a>
+        <a class="nav-item flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm" data-page="knowledgebase" data-action="gotoPage">
+          <i data-lucide="book-open" class="w-4 h-4"></i><span class="nav-text">知识库</span>
+        </a>
+        <a class="nav-item flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm" data-page="creator" data-action="gotoPage">
+          <i data-lucide="sparkles" class="w-4 h-4"></i><span class="nav-text">AI 创作</span>
+          <span class="ml-auto pill pill-brand nav-badge">New</span>
+        </a>
+        <a class="nav-item flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm" data-page="skills" data-action="gotoPage">
+          <i data-lucide="blocks" class="w-4 h-4"></i><span class="nav-text">Skill 中心</span>
+          <span class="ml-auto text-[10px] text-gray-500 nav-badge" id="nav-skill-count">…</span>
+        </a>
+        <a class="nav-item flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm" data-page="agent" data-action="gotoPage">
+          <i data-lucide="bot" class="w-4 h-4"></i><span class="nav-text">Agent 对话</span>
+          <span class="ml-auto pill pill-sky nav-badge">Local</span>
+        </a>
+        <div class="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 mt-4 nav-group-label">系统</div>
+        <a class="nav-item flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm" data-page="settings" data-action="gotoPage">
+          <i data-lucide="settings" class="w-4 h-4"></i><span class="nav-text">设置</span>
+        </a>
+      </nav>
+      <div class="p-3 border-t border-white/5">
+        <div class="flex items-center gap-1 sidebar-user-wrap">
+        <button class="flex items-center gap-2.5 px-2 py-2 min-w-0 flex-1 rounded-lg hover:bg-white/[0.04] text-left" data-action="openAccountModal" title="账户与安全">
+          <div id="current-user-avatar" class="w-8 h-8 rounded-full bg-gradient-to-br from-pink-500 to-orange-500 flex items-center justify-center text-xs font-semibold flex-shrink-0">A</div>
+          <div class="flex-1 min-w-0 sidebar-user-info">
+            <div class="text-sm font-medium truncate flex items-center gap-1">
+              <span id="current-user-name">管理员</span>
+              <span id="current-user-warning" class="hidden w-1.5 h-1.5 rounded-full bg-amber-400" title="请修改默认密码"></span>
+            </div>
+            <div class="text-[10px] text-gray-500 flex items-center gap-1">
+              <span class="pulse-dot w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+              <span id="current-user-username">@admin</span>
+              <span>·</span>
+              <span id="api-status">检测中…</span>
+            </div>
+          </div>
+        </button>
+        <button class="btn btn-ghost p-2 text-gray-500 hover:text-red-400 sidebar-logout-btn" data-action="logoutAccount" title="退出登录" aria-label="退出登录">
+          <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+        </button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="flex-1 flex flex-col min-w-0 min-w-0">
+      <header class="border-b border-white/5 px-4 py-3 flex items-center gap-3 bg-black/10">
+        <button class="btn btn-ghost p-1.5 mobile-only text-gray-400" data-action="openMobileSidebar" title="菜单">
+          <i data-lucide="menu" class="w-5 h-5"></i>
+        </button>
+        <div class="flex-1 max-w-xl relative">
+          <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"></i>
+          <input class="input search-input pl-10 has-right-btn" id="globalSearch" placeholder="搜抖/红/公 三平台爆款、关键词、作者..." />
+          <button class="btn btn-primary absolute right-1 top-1/2 -translate-y-1/2 py-1.5 text-xs" data-action="doGlobalSearch">搜索</button>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="btn btn-ghost" data-action="refreshCurrent"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>刷新</button>
+          <button class="btn btn-primary" data-action="gotoPage" data-page="creator"><i data-lucide="plus" class="w-3.5 h-3.5"></i>新建创作</button>
+        </div>
+      </header>
+      <div id="forge-bar" aria-hidden="true"></div>
+      <div class="flex-1 overflow-y-auto" id="content-area"></div>
+    </main>
+  </div>
+</div>
+
+<!-- ============= 页面模板 ============= -->
+
+<!-- DASHBOARD -->
+<template id="tpl-dashboard">
+<div class="p-6 space-y-5">
+  <div class="page-header">
+    <div>
+      <div class="page-header-title"><i data-lucide="layout-dashboard" class="w-5 h-5 text-amber-400"></i>运营总览</div>
+      <div class="page-header-sub">整体健康 → 问题定位 → 行动建议 · 跨账号一眼看清</div>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-primary py-1.5 text-xs" data-action="addMyAccount"><i data-lucide="plus" class="w-3.5 h-3.5"></i>添加账号</button>
+    </div>
+  </div>
+
+  <!-- KPI 条（数值由 renderKpis 填充） -->
+  <div class="grid grid-cols-3 lg:grid-cols-6 gap-3">
+    <div class="glass rounded-xl p-3 text-center cursor-pointer hover:bg-white/[0.04] transition" data-action="gotoPage" data-page="tracker">
+      <div class="text-[10px] uppercase tracking-wider text-gray-500 mb-1">账号</div>
+      <div class="text-2xl font-bold text-gray-200" id="ops-kpi-accounts">—</div>
+    </div>
+    <div class="glass rounded-xl p-3 text-center cursor-pointer hover:bg-white/[0.04] transition" data-action="gotoPage" data-page="tracker">
+      <div class="text-[10px] uppercase tracking-wider text-gray-500 mb-1">平均分</div>
+      <div class="text-2xl font-bold text-gray-200" id="ops-kpi-score">—</div>
+    </div>
+    <div class="glass rounded-xl p-3 text-center">
+      <div class="text-[10px] uppercase tracking-wider text-gray-500 mb-1">已分析文章</div>
+      <div class="text-2xl font-bold text-gray-200" id="ops-kpi-analyzed">—</div>
+    </div>
+    <div class="glass rounded-xl p-3 text-center">
+      <div class="text-[10px] uppercase tracking-wider text-gray-500 mb-1">爆款</div>
+      <div class="text-2xl font-bold text-emerald-300" id="ops-kpi-hot">—</div>
+    </div>
+    <div class="glass rounded-xl p-3 text-center">
+      <div class="text-[10px] uppercase tracking-wider text-gray-500 mb-1">冷门</div>
+      <div class="text-2xl font-bold text-red-300" id="ops-kpi-cold">—</div>
+    </div>
+    <div class="glass rounded-xl p-3 text-center cursor-pointer hover:bg-white/[0.04] transition" data-action="gotoPage" data-page="tracker">
+      <div class="text-[10px] uppercase tracking-wider text-gray-500 mb-1">待诊断</div>
+      <div class="text-2xl font-bold text-amber-300" id="ops-kpi-pending">—</div>
+    </div>
+  </div>
+
+  <!-- LLM 运营总结 -->
+  <div class="glass-strong rounded-xl p-5" id="ops-summary">
+    <div class="text-center text-gray-500 py-4 text-sm">加载中…</div>
+  </div>
+
+  <!-- 问题分布 + 账号概览 -->
+  <div class="grid lg:grid-cols-5 gap-4">
+    <div class="glass rounded-xl p-4 lg:col-span-2" id="ops-issue-dist">
+      <div class="text-center text-gray-500 py-4 text-sm">加载中…</div>
+    </div>
+    <div class="glass rounded-xl p-4 lg:col-span-3">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold flex items-center gap-2"><i data-lucide="users" class="w-4 h-4 text-amber-400"></i>账号概览</h2>
+        <span class="text-[10px] text-gray-500">点击行进入「账号追踪」看完整诊断</span>
+      </div>
+      <div id="ops-account-rows" class="space-y-2">
+        <div class="text-center text-gray-500 py-4 text-sm">加载中…</div>
+      </div>
+      <div id="ops-account-empty" class="hidden text-center py-8 text-gray-500">
+        <i data-lucide="user-plus" class="w-10 h-10 mx-auto mb-3 opacity-30"></i>
+        <div class="text-sm">还没有添加个人账号</div>
+        <p class="text-xs text-gray-600 mt-2">添加账号后，这里会展示每个账号的健康度与文章表现</p>
+        <button class="btn btn-primary mt-4 py-1.5 text-xs" data-action="addMyAccount"><i data-lucide="plus" class="w-3.5 h-3.5"></i>添加账号</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 需关注文章（降级，跨账号） -->
+  <div>
+    <h2 class="text-sm font-semibold mb-3 flex items-center gap-2"><i data-lucide="trending-down" class="w-4 h-4 text-red-400"></i>需关注文章<span class="text-[10px] font-normal text-gray-500" id="ops-cold-count"></span></h2>
+    <div id="ops-cold-list" class="grid lg:grid-cols-2 gap-3"></div>
+    <div id="ops-cold-empty" class="hidden glass rounded-xl p-6 text-center text-gray-500 text-sm">暂无降级文章 · 点击账号行的「分析文章」生成诊断</div>
+  </div>
+
+  <!-- 爆款经验（升级，跨账号） -->
+  <div>
+    <h2 class="text-sm font-semibold mb-3 flex items-center gap-2"><i data-lucide="trending-up" class="w-4 h-4 text-emerald-400"></i>爆款经验<span class="text-[10px] font-normal text-gray-500" id="ops-hot-count-articles"></span></h2>
+    <div id="ops-hot-list" class="grid lg:grid-cols-2 gap-3"></div>
+    <div id="ops-hot-empty" class="hidden glass rounded-xl p-6 text-center text-gray-500 text-sm">暂无爆款文章</div>
+  </div>
+
+  <!-- 快捷入口（紧凑） -->
+  <div class="grid grid-cols-3 gap-3">
+    <div class="glass rounded-xl p-3 cursor-pointer hover:bg-white/[0.04] transition" data-action="gotoPage" data-page="hotlist">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <i data-lucide="flame" class="w-4 h-4 text-orange-400"></i>
+          <div>
+            <div class="text-xs font-medium">今日热榜</div>
+            <div class="text-[10px] text-gray-500" id="ops-hot-count">—</div>
+          </div>
+        </div>
+        <i data-lucide="arrow-up-right" class="w-3.5 h-3.5 text-gray-600"></i>
+      </div>
+    </div>
+    <div class="glass rounded-xl p-3 cursor-pointer hover:bg-white/[0.04] transition" data-action="gotoPage" data-page="tracker">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <i data-lucide="users" class="w-4 h-4 text-purple-400"></i>
+          <div>
+            <div class="text-xs font-medium">竞品追踪</div>
+            <div class="text-[10px] text-gray-500" id="ops-tracker-count">—</div>
+          </div>
+        </div>
+        <i data-lucide="arrow-up-right" class="w-3.5 h-3.5 text-gray-600"></i>
+      </div>
+    </div>
+    <div class="glass rounded-xl p-3 cursor-pointer hover:bg-white/[0.04] transition" data-action="gotoPage" data-page="knowledgebase">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <i data-lucide="book-open" class="w-4 h-4 text-cyan-400"></i>
+          <div>
+            <div class="text-xs font-medium">知识库</div>
+            <div class="text-[10px] text-gray-500" id="ops-lib-count">—</div>
+          </div>
+        </div>
+        <i data-lucide="arrow-up-right" class="w-3.5 h-3.5 text-gray-600"></i>
+      </div>
+    </div>
+  </div>
+</div>
+</template>
+
+<!-- HOTLIST -->
+<template id="tpl-hotlist">
+<div class="p-6 space-y-5">
+  <div class="page-header">
+    <div>
+      <div class="page-header-title"><i data-lucide="flame" class="w-5 h-5 text-orange-400"></i>热榜聚合</div>
+      <div class="page-header-sub">多平台实时热榜与趋势分析</div>
+    </div>
+  </div>
+  <div class="glass-strong rounded-xl p-5">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h2 class="font-semibold flex items-center gap-2"><i data-lucide="globe" class="w-4 h-4 text-pink-400"></i>全网 TOP 热点</h2>
+        <p class="text-xs text-gray-500 mt-1">多平台实时热榜 · 默认 08:00、14:00、18:00、20:00 调用 API 并按批次落库</p>
+      </div>
+      <div class="flex items-center gap-2 text-[11px] text-gray-400" id="hot-top10-time">加载中…</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px" id="hot-top10"></div>
+  </div>
+  <div class="glass rounded-xl p-5">
+    <div class="flex items-center justify-between gap-3 mb-4">
+      <div>
+        <h2 class="font-semibold flex items-center gap-2"><i data-lucide="trending-up" class="w-4 h-4 text-cyan-400"></i>热点趋势</h2>
+        <p class="text-xs text-gray-500 mt-1">每天 23:00 用 LLM 提取前一天真实落库标题的关键词，再按出现次数、平台覆盖和排名变化计算趋势</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <select class="input py-1.5 text-xs" id="trendDays" style="width:auto">
+          <option value="7">最近 7 天</option>
+          <option value="14" selected>最近 14 天</option>
+        </select>
+        <button class="btn btn-ghost py-1.5 text-xs" data-action="runSnapshot"><i data-lucide="download" class="w-3.5 h-3.5"></i>抓取全部昨日榜</button>
+      </div>
+    </div>
+    <div id="hot-trends" class="grid grid-cols-1 md:grid-cols-2 gap-2.5"></div>
+  </div>
+  <div class="glass rounded-xl p-5">
+    <div id="hot-tabs" class="flex items-center flex-wrap gap-1 mb-4 border-b border-white/5 -mx-5 px-5 pb-3"></div>
+    <div id="hot-tab-meta" class="mb-3"></div>
+    <div id="hot-tab-content" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2"></div>
+  </div>
+</div>
+</template>
+
+<!-- INSPIRATION -->
+<template id="tpl-inspiration">
+<div class="p-6 space-y-5">
+  <div class="page-header">
+    <div>
+      <div class="page-header-title"><i data-lucide="lightbulb" class="w-5 h-5 text-amber-400"></i>灵感与选题库</div>
+      <div class="page-header-sub">从热点趋势中筛选、分类并生成可执行选题</div>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-ghost" data-action="gotoPage" data-page="settings"><i data-lucide="settings" class="w-4 h-4"></i>自动选题设置</button>
+    </div>
+  </div>
+  <div class="glass-strong rounded-xl p-3" style="position:relative;z-index:10">
+    <div class="search-toolbar">
+      <div class="field grow" style="flex-basis:180px">
+        <label>账号赛道</label>
+        <input class="input input-md w-full" id="inspirationDomain" placeholder="例如：AI 工具、NAS" />
+      </div>
+      <div class="field grow" style="flex-basis:180px">
+        <label>指定热点（可选）</label>
+        <input class="input input-md w-full" id="inspirationKeywords" placeholder="逗号分隔，留空读取趋势" />
+      </div>
+      <div class="field fixed" style="flex-basis:180px;position:relative;z-index:60">
+        <label>数据来源</label>
+        <button class="btn btn-ghost btn-md w-full justify-between" id="inspiration-source-toggle" data-action="toggleInspirationSourceDropdown" type="button">
+          <span class="flex items-center gap-2">
+            <i data-lucide="database" class="w-3.5 h-3.5 text-purple-400"></i>
+            <span id="inspiration-source-label">数据来源</span>
+          </span>
+          <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
+        </button>
+        <div id="inspiration-source-dropdown" class="hidden absolute top-full left-0 mt-1.5 rounded-lg border border-white/15 p-3 shadow-2xl" style="z-index:9999;background:var(--bg-2,#1a1a1a);">
+          <div class="text-xs text-gray-400 mb-2">选择数据来源（多选）</div>
+          <div class="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto scrollbar-thin" id="inspiration-sources"></div>
+        </div>
+      </div>
+      <button class="btn btn-primary btn-md justify-center flex-shrink-0" data-action="generateInspirations">
+        <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>生成选题
+      </button>
+    </div>
+  </div>
+  <div class="flex items-center justify-between" id="inspiration-list-header">
+    <div class="flex items-center gap-3">
+      <label class="text-xs flex items-center gap-1.5 hidden" id="inspiration-select-all-wrap"><input type="checkbox" class="accent-purple-500" id="inspiration-select-all">全选</label>
+      <div class="text-sm text-gray-400" id="inspiration-status">加载中…</div>
+      <select class="input py-1 text-xs" id="inspirationFilter" style="width:auto">
+        <option value="all">全部</option>
+        <option value="favorite">已收藏</option>
+        <option value="like">感兴趣</option>
+        <option value="dislike">不感兴趣</option>
+        <option value="block">已拉黑</option>
+        <option value="trash">回收站</option>
+      </select>
+    </div>
+    <div class="flex items-center gap-3">
+      <span class="text-[10px] text-gray-500" id="inspiration-engine">选题统一由 LLM 生成；无热点证据时会明确标注为“无热点 · 模型推理”。</span>
+      <button class="btn btn-ghost py-1.5 text-xs" data-action="renderInspiration"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>刷新</button>
+    </div>
+  </div>
+  <div id="inspiration-trash-toolbar" class="hidden glass rounded-lg p-3 flex items-center justify-between gap-3">
+    <label class="text-xs flex items-center gap-2"><input type="checkbox" class="accent-red-500" id="trash-select-all">全选当前回收站</label>
+    <div class="flex items-center gap-2"><span class="text-xs text-gray-500" id="trash-selected-count">已选择 0 项</span><button class="btn btn-ghost py-1.5 text-xs text-red-400" data-action="batchDeleteTrash"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i>批量永久删除</button></div>
+  </div>
+  <div id="inspiration-list" class="grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
+  <div id="inspiration-batch-toolbar" class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-30 glass-strong rounded-full px-4 py-2 flex items-center gap-3 shadow-lg">
+    <span class="text-xs text-gray-400" id="inspiration-batch-count">已选 0 项</span>
+    <button class="btn btn-ghost py-1 px-2 text-xs text-amber-300" data-action="batchFavoriteInspirations"><i data-lucide="bookmark" class="w-3 h-3"></i>收藏</button>
+    <button class="btn btn-ghost py-1 px-2 text-xs text-red-400" data-action="batchTrashInspirations"><i data-lucide="trash-2" class="w-3 h-3"></i>移入回收站</button>
+    <button class="btn btn-ghost py-1 px-2 text-xs text-gray-400" data-action="clearInspirationSelection">取消</button>
+  </div>
+  <div id="inspiration-empty" class="hidden text-center py-16 text-gray-500">
+    <i data-lucide="lightbulb" class="w-12 h-12 mx-auto mb-3 opacity-30"></i>
+    <div>选题库还是空的</div>
+    <p class="text-xs text-gray-600 mt-2">先保存一次热榜快照，再从热点生成选题</p>
+  </div>
+</div>
+</template>
+
+<!-- SEARCH -->
+<template id="tpl-search">
+<div class="p-6 space-y-5">
+  <div class="page-header">
+    <div>
+      <div class="page-header-title"><i data-lucide="search" class="w-5 h-5 text-cyan-400"></i>全网搜索</div>
+      <div class="page-header-sub">跨平台搜索爆款内容、关键词与作者</div>
+    </div>
+  </div>
+  <div class="glass-strong rounded-xl p-5">
+    <div class="flex gap-2">
+      <div class="flex-1 relative">
+        <i data-lucide="search" class="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
+        <input class="input search-input-lg pl-12" id="searchInput" placeholder="输入关键词搜索（例：露营、美妆、AI）" />
+      </div>
+      <button class="btn btn-primary px-6" data-action="doSearch">
+        <i data-lucide="search" class="w-4 h-4"></i>搜索
+      </button>
+    </div>
+    <div class="flex items-center gap-3 mt-3 text-xs text-gray-400 flex-wrap">
+      <span>平台：</span>
+      <label class="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" class="accent-purple-500" data-plat="dy" checked>抖音</label>
+      <label class="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" class="accent-purple-500" data-plat="xhs" checked>小红书</label>
+      <label class="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" class="accent-purple-500" data-plat="gzh" checked>公众号</label>
+      <span class="ml-2">每平台：</span>
+      <select class="input py-0.5 px-2 text-xs w-auto" id="searchSize" style="width:auto">
+        <option value="10">10 条</option><option value="20" selected>20 条</option><option value="30">30 条</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="search-status" class="text-sm text-gray-400"></div>
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="search-results"></div>
+
+  <div id="search-history-panel" class="glass rounded-xl p-5" style="display:none">
+    <h3 class="font-semibold mb-3 flex items-center gap-2"><i data-lucide="history" class="w-4 h-4 text-cyan-400"></i>搜索历史</h3>
+    <div id="search-history" class="flex flex-wrap gap-2"></div>
+  </div>
+</div>
+</template>
+
+<!-- DETAIL -->
+<template id="tpl-detail">
+<div class="p-6 space-y-5">
+  <div class="flex items-center gap-3">
+    <button class="btn btn-ghost py-1.5" data-action="goBackOrFallback" data-fallback-page="hotlist">
+      <i data-lucide="arrow-left" class="w-4 h-4"></i>返回
+    </button>
+    <span class="text-xs text-gray-500" id="detail-source">加载中…</span>
+  </div>
+  <div id="detail-content" class="grid grid-cols-1 lg:grid-cols-3 gap-5"></div>
+</div>
+</template>
+
+<!-- TRACKER -->
+<template id="tpl-tracker">
+<div class="p-6 space-y-5">
+  <div class="page-header">
+    <div>
+      <div class="page-header-title"><i data-lucide="radar" class="w-5 h-5 text-emerald-400"></i>账号追踪</div>
+      <div class="page-header-sub" id="tracker-sub">— 个关注账号</div>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-ghost" data-action="toggleTrackerSortMode" id="tracker-sort-btn"><i data-lucide="arrow-up-down" class="w-4 h-4"></i>排序</button>
+      <button class="btn btn-primary" data-action="openAddAccountModal"><i data-lucide="plus" class="w-4 h-4"></i>添加账号</button>
+    </div>
+  </div>
+  <div class="page-section space-y-4">
+    <div class="flex items-center gap-2 flex-wrap" id="tracker-groups">
+      <button class="tab-btn active px-3 py-1.5 text-sm rounded-md" data-group="all">全部 <span class="text-gray-500 text-xs ml-1" id="g-all">0</span></button>
+      <button class="tab-btn px-3 py-1.5 text-sm rounded-md" data-group="自己">自己 <span class="text-gray-500 text-xs ml-1" id="g-self">0</span></button>
+      <button class="tab-btn px-3 py-1.5 text-sm rounded-md" data-group="竞品">竞品 <span class="text-gray-500 text-xs ml-1" id="g-jingpin">0</span></button>
+      <button class="tab-btn px-3 py-1.5 text-sm rounded-md" data-group="灵感来源">灵感 <span class="text-gray-500 text-xs ml-1" id="g-linggan">0</span></button>
+      <button class="tab-btn px-3 py-1.5 text-sm rounded-md" data-group="同赛道">同赛道 <span class="text-gray-500 text-xs ml-1" id="g-tongsaid">0</span></button>
+      <button class="tab-btn px-3 py-1.5 text-sm rounded-md" data-group="other">其他 <span class="text-gray-500 text-xs ml-1" id="g-other">0</span></button>
+    </div>
+    <div id="tracker-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+    <div id="tracker-empty" class="hidden text-center py-16 text-gray-500">
+      <i data-lucide="users" class="w-12 h-12 mx-auto mb-3 opacity-30"></i>
+      <div>还没有关注任何账号</div>
+      <button class="btn btn-primary mt-4" data-action="openAddAccountModal"><i data-lucide="plus" class="w-4 h-4"></i>添加第一个</button>
+    </div>
+  </div>
+</div>
+</template>
+
+<!-- LIBRARY -->
+<template id="tpl-library">
+<div class="p-6 space-y-5">
+  <div class="page-header">
+    <div>
+      <div class="page-header-title"><i data-lucide="book-open" class="w-5 h-5 text-cyan-400"></i>知识库</div>
+      <div class="page-header-sub" id="kb-sub">请先配置知识库来源</div>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-ghost py-1.5 text-xs" data-action="openKbConfigModal"><i data-lucide="settings" class="w-3.5 h-3.5"></i>配置</button>
+      <button class="btn btn-primary py-1.5 text-xs" data-action="createKbEntry"><i data-lucide="plus" class="w-3.5 h-3.5"></i>新建条目</button>
+    </div>
+  </div>
+  <div class="flex gap-2 border-b border-white/10 pb-2" id="kb-tabs">
+    <button class="kb-tab active text-sm font-medium pb-1 border-b-2 border-brand" data-tab="obsidian" data-action="switchKbTab" data-tab-name="obsidian"><i data-lucide="folder" class="w-3.5 h-3.5 inline -mt-0.5"></i> Obsidian</button>
+    <button class="kb-tab text-sm font-medium pb-1 border-b-2 border-transparent text-gray-400" data-tab="notion" data-action="switchKbTab" data-tab-name="notion"><i data-lucide="database" class="w-3.5 h-3.5 inline -mt-0.5"></i> Notion</button>
+    <button class="kb-tab text-sm font-medium pb-1 border-b-2 border-transparent text-gray-400" data-action="switchKbTab" data-tab-name="wersss"><i data-lucide="rss" class="w-3.5 h-3.5 inline -mt-0.5"></i> WeRss 公众号<span id="wersss-tab-dot" class="inline-block w-1.5 h-1.5 rounded-full bg-gray-500 ml-1.5 align-middle" title="未配置"></span></button>
+    <button class="kb-tab text-sm font-medium pb-1 border-b-2 border-transparent text-gray-400" data-action="switchKbTab" data-tab-name="library">我的收藏<span class="text-[10px] ml-1" id="kb-lib-count"></span></button>
+  </div>
+  <div id="kb-tab-kb" class="pt-2 flex flex-col" style="height:calc(100vh - 180px)">
+    <div class="glass-strong rounded-xl p-3 mb-3 flex gap-2 items-end flex-shrink-0">
+      <div class="flex-1 relative">
+        <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+        <input class="input search-input pl-10" id="kb-search" placeholder="搜索标题、标签或内容…" />
+      </div>
+      <select class="input py-1.5 text-xs" id="kb-filter-tag" style="width:auto">
+        <option value="">全标签</option>
+      </select>
+      <button class="btn btn-ghost py-1.5 text-xs" data-action="loadKbEntries" data-reload="true" title="刷新">
+        <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+      </button>
+    </div>
+    <div class="flex gap-4 flex-1 min-h-0">
+      <div class="w-72 flex-shrink-0 glass-strong rounded-xl p-3 flex flex-col min-h-0">
+        <div class="text-xs text-gray-500 mb-2 font-medium flex items-center gap-1.5">
+          <i data-lucide="folder-tree" class="w-3.5 h-3.5"></i>文件夹
+        </div>
+        <div id="kb-folder-tree" class="flex-1 overflow-y-auto scrollbar-thin -mx-1 px-1 text-sm"></div>
+      </div>
+      <div class="flex-1 min-w-0 overflow-y-auto scrollbar-thin pr-1">
+        <div id="kb-entries" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+        <div id="kb-empty" class="hidden text-center py-16 text-gray-500">
+          <i data-lucide="book-open" class="w-12 h-12 mx-auto mb-3 opacity-30"></i>
+          <div id="kb-empty-msg">知识库还没有条目</div>
+          <p class="text-xs text-gray-600 mt-2" id="kb-empty-hint">先配置来源，然后扫描或新建条目</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="kb-tab-library" class="hidden">
+    <div id="kb-lib-entries" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+    <div id="kb-lib-empty" class="hidden text-center py-16 text-gray-500">
+      <i data-lucide="bookmark" class="w-12 h-12 mx-auto mb-3 opacity-30"></i>
+      <div>还没有收藏</div>
+      <p class="text-xs text-gray-600 mt-2">在搜索或详情页点击"收藏"按钮即可加入</p>
+    </div>
+  </div>
+  <div id="kb-tab-wersss" class="hidden">
+    <div class="glass-strong rounded-xl p-4 mb-4">
+      <div class="flex items-center justify-between gap-3 flex-wrap">
+        <div class="text-xs text-gray-400">
+          <span id="wersss-status-dot" class="inline-block w-2 h-2 rounded-full bg-gray-500 mr-1.5"></span>
+          <span id="wersss-status-text">未配置</span>
+          <span class="text-gray-600 ml-2">· 配置入口在「设置 → 外部服务接入」</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="btn btn-ghost py-1.5 text-xs" data-action="addWersssSub"><i data-lucide="plus" class="w-3.5 h-3.5"></i>添加订阅</button>
+          <button class="btn btn-primary py-1.5 text-xs" data-action="syncWersss"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>立即同步</button>
+          <button class="btn btn-ghost py-1.5 text-xs" data-action="prefetchWersss" title="批量抓取所有文章的正文（用于全文搜索）"><i data-lucide="download" class="w-3.5 h-3.5"></i>预抓正文</button>
+        </div>
+      </div>
+    </div>
+    <div class="flex gap-4">
+      <div class="w-56 flex-shrink-0">
+        <div class="text-xs text-gray-500 mb-2">订阅的公众号</div>
+        <div id="wersss-subs" class="space-y-1 max-h-[70vh] overflow-y-auto scrollbar-thin pr-1"></div>
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 mb-2">
+          <div class="flex-1 relative">
+            <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500"></i>
+            <input class="input search-input pl-8" id="wersss-search-input" placeholder="搜索标题和正文（需先预抓正文）…">
+          </div>
+          <div class="text-[11px] text-gray-500" id="wersss-articles-title">最新文章</div>
+        </div>
+        <div id="wersss-articles" class="space-y-2 max-h-[65vh] overflow-y-auto scrollbar-thin pr-1"></div>
+      </div>
+    </div>
+  </div>
+</div>
+</template>
+
+<!-- CREATOR -->
+<template id="tpl-creator">
+<div class="p-6 space-y-5">
+  <div class="page-header">
+    <div>
+      <div class="page-header-title"><i data-lucide="sparkles" class="w-5 h-5 text-pink-400"></i>AI 创作</div>
+      <div class="page-header-sub">素材 → 多平台输出，违禁词检测与 AI 封面是顶部附加工具</div>
+    </div>
+  </div>
+  <div id="creator-source" class="hidden mb-3 p-3 rounded-lg border border-purple-500/30 bg-purple-500/10 text-xs">
+    <div class="flex items-start gap-2">
+      <i data-lucide="link" class="w-3.5 h-3.5 text-purple-300 flex-shrink-0 mt-0.5"></i>
+      <div class="flex-1 min-w-0">
+        <div class="text-purple-300 font-medium mb-0.5" id="creator-source-meta">来源：—</div>
+        <div class="text-gray-300 truncate" id="creator-source-title">—</div>
+      </div>
+      <button class="btn btn-ghost py-0.5 px-1.5 text-[11px] text-gray-400 hover:text-red-400 flex-shrink-0" data-action="clearCreatorSource" title="清除来源绑定"><i data-lucide="x" class="w-3 h-3"></i></button>
+    </div>
+  </div>
+
+  <div class="glass rounded-xl p-2.5 flex flex-wrap items-center gap-x-4 gap-y-2">
+    <div class="flex items-center gap-1.5">
+      <span class="text-xs text-gray-400 flex items-center gap-1"><i data-lucide="shield-check" class="w-3.5 h-3.5 text-amber-400"></i>违禁词</span>
+      <select class="input py-0.5 px-1.5 text-xs" id="checkPlatform" style="width:auto">
+        <option value="抖音">抖音</option>
+        <option value="小红书">小红书</option>
+        <option value="公众号" selected>公众号</option>
+      </select>
+      <button class="btn btn-ghost py-0.5 text-xs" data-action="doCheckWord">检测</button>
+    </div>
+    <div class="h-4 w-px bg-white/10"></div>
+    <div class="flex items-center gap-1.5">
+      <span class="text-xs text-gray-400 flex items-center gap-1"><i data-lucide="image-plus" class="w-3.5 h-3.5 text-amber-400"></i>封面</span>
+      <select class="input py-0.5 px-1.5 text-xs" id="coverSize" style="width:auto">
+        <option value="1024x1024">方图 1:1</option>
+        <option value="1024x1536">竖图 2:3</option>
+        <option value="1536x1024">横图 3:2</option>
+      </select>
+      <button class="btn btn-ghost py-0.5 text-xs" data-action="generateCover">生成</button>
+    </div>
+    <div class="h-4 w-px bg-white/10"></div>
+    <div class="flex items-center gap-1.5">
+      <button class="btn btn-ghost py-0.5 text-xs" data-action="copyRewrite"><i data-lucide="copy" class="w-3.5 h-3.5"></i>复制</button>
+      <select id="exportKbTarget" class="input text-xs py-0.5 px-1.5" style="width:auto">
+        <option value="obsidian">→ Obsidian</option>
+        <option value="notion">→ Notion</option>
+      </select>
+      <button class="btn btn-ghost py-0.5 text-xs" data-action="exportToKb"><i data-lucide="book-plus" class="w-3.5 h-3.5"></i>导出</button>
+    </div>
+  </div>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div id="checkResult" class="text-xs text-gray-400 leading-relaxed min-h-[1.5em]">违禁词检测结果会显示在这里</div>
+    <div id="coverResult" class="text-xs text-gray-500 min-h-[1.5em]">AI 封面生成结果会显示在这里</div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-[1fr_24px_1fr] gap-5 items-stretch">
+    <div class="space-y-4 flex flex-col">
+      <div class="panel-raw p-5 flex-1 flex flex-col min-h-[480px]">
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <h3 class="text-sm font-semibold flex items-center gap-1.5"><i data-lucide="hammer" class="w-3.5 h-3.5 text-amber-400"></i>输入素材</h3>
+          <div class="inline-flex rounded-md bg-white/[0.03] p-0.5" id="creator-mode-tabs">
+            <button class="px-3 py-1 text-xs rounded-md transition creator-mode-tab bg-amber-500/20 text-amber-300" data-mode="create" title="从零创作（可适当发挥，但遵守事实底线）">创作</button>
+            <button class="px-3 py-1 text-xs rounded-md transition creator-mode-tab text-gray-400 hover:text-gray-200" data-mode="rewrite" title="在原素材基础上打磨、扩展结构或换风格">改写</button>
+          </div>
+        </div>
+        <textarea class="input w-full flex-1 resize-none min-h-0 text-sm leading-relaxed" id="creatorInput" placeholder="输入主题/大纲/关键词，AI 会基于此创作全新内容..."></textarea>
+        <div id="creator-mode-hint" class="text-[10px] text-gray-500 mt-2">创作模式：基于主题/大纲从零写，可适当发挥但遵守事实底线</div>
+      </div>
+    </div>
+    <div class="forge-axis hidden lg:flex" aria-hidden="true"></div>
+    <div class="space-y-4">
+      <div class="panel-forged p-5 flex flex-col">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-sm font-semibold flex items-center gap-1.5"><i data-lucide="flame" class="w-4 h-4 text-amber-400"></i>多平台输出</h3>
+          <button class="btn btn-primary py-1.5 px-3 text-xs" data-action="doRewrite" id="doRewriteBtn"><i data-lucide="wand-sparkles" class="w-3.5 h-3.5"></i><span id="doRewriteLabel">开始创作</span></button>
+        </div>
+
+        <select class="hidden" id="rewritePlatform">
+          <option value="小红书" data-skill-create="xiaohongshu-write" data-skill-rewrite="xiaohongshu-rewrite" selected>小红书</option>
+          <option value="公众号" data-skill-create="wechat-write" data-skill-rewrite="wechat-rewrite">公众号</option>
+          <option value="知乎" data-skill-create="zhihu-rewrite" data-skill-rewrite="zhihu-rewrite">知乎</option>
+          <option value="抖音" data-skill-create="multi-rewrite" data-skill-rewrite="multi-rewrite">抖音</option>
+          <option value="视频号" data-skill-create="multi-rewrite" data-skill-rewrite="multi-rewrite">视频号</option>
+          <option value="快手" data-skill-create="multi-rewrite" data-skill-rewrite="multi-rewrite">快手</option>
+          <option value="哔站" data-skill-create="multi-rewrite" data-skill-rewrite="multi-rewrite">哔站</option>
+        </select>
+
+        <div class="flex flex-wrap gap-1.5 mb-3" id="platform-pills">
+          <button type="button" class="platform-pill is-active" data-platform="小红书"><span class="dot bg-pink-400"></span>小红书</button>
+          <button type="button" class="platform-pill" data-platform="公众号"><span class="dot bg-emerald-400"></span>公众号</button>
+          <button type="button" class="platform-pill" data-platform="知乎"><span class="dot bg-blue-400"></span>知乎</button>
+          <button type="button" class="platform-pill" data-platform="抖音"><span class="dot bg-red-400"></span>抖音</button>
+          <button type="button" class="platform-pill" data-platform="视频号"><span class="dot bg-teal-400"></span>视频号</button>
+          <button type="button" class="platform-pill" data-platform="快手"><span class="dot bg-orange-400"></span>快手</button>
+          <button type="button" class="platform-pill" data-platform="哔站"><span class="dot bg-fuchsia-400"></span>哔站</button>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3 text-xs">
+          <span class="text-gray-500">语气</span>
+          <div class="inline-flex rounded-md bg-white/[0.03] p-0.5" id="tone-pills">
+            <button type="button" class="tone-pill is-active" data-tone="专业、清晰、有观点">专业观点</button>
+            <button type="button" class="tone-pill" data-tone="轻松、口语化、有生活感">轻松口语</button>
+            <button type="button" class="tone-pill" data-tone="信息密度高、结构清楚">高信息密度</button>
+          </div>
+          <select id="rewriteTone" class="hidden">
+            <option value="专业、清晰、有观点" selected>专业观点</option>
+            <option value="轻松、口语化、有生活感">轻松口语</option>
+            <option value="信息密度高、结构清楚">高信息密度</option>
+          </select>
+          <span class="text-gray-500">风格档案</span>
+          <select class="input py-1 px-2 text-xs" id="rewriteStyleProfile" style="width:auto" title="使用「我的」账号提炼的风格档案">
+            <option value="">（不使用风格档案）</option>
+          </select>
+          <div class="ml-auto flex items-center gap-1 min-h-[28px]">
+            <span id="rewrite-skill-badge" class="pill pill-gray !text-[10px] !py-0.5 !px-1.5 hidden"></span>
+            <button class="btn btn-ghost py-1 px-2 text-xs" id="hotspotAnalyzeBtn" data-action="analyzeRewriteHotspots"><i data-lucide="trending-up" class="w-3.5 h-3.5"></i>分析热点</button>
+            <button class="btn btn-ghost py-1 px-2 text-xs" data-action="openActionLogs"><i data-lucide="scroll-text" class="w-3.5 h-3.5"></i>日志</button>
+          </div>
+        </div>
+
+        <div id="rewriteHotspotWrap" class="hotspot-collapse">
+          <div id="rewriteHotspotPanel" class="hidden rounded-lg border border-white/10 bg-black/20 p-3">
+            <div class="flex items-center justify-between mb-2">
+              <div class="text-xs font-semibold">相关实时热点</div>
+              <button class="text-[11px] text-gray-500 hover:text-gray-300" data-action="clearSelectedHotspot">不蹭热点</button>
+            </div>
+            <div id="rewriteKeywords" class="flex flex-wrap gap-1.5 mb-3"></div>
+            <div id="rewriteHotspotSource" class="text-[11px] text-gray-500 mb-2"></div>
+            <div id="rewriteHotspotList" class="space-y-2"></div>
+          </div>
+        </div>
+
+        <div class="space-y-3 flex-1 flex flex-col">
+          <div class="result-field result-field-hero">
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-[11px] uppercase tracking-wider text-amber-300 font-semibold">标题</label>
+              <button type="button" class="btn btn-ghost py-0.5 px-1.5 text-[11px] text-gray-400 hover:text-amber-300" data-copy-target="rewriteTitle" title="复制标题"><i data-lucide="copy" class="w-3 h-3"></i></button>
+            </div>
+            <input class="result-input-hero" id="rewriteTitle" placeholder="生成后的标题会出现在这里…" />
+          </div>
+          <div class="result-field">
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">前言</label>
+              <button type="button" class="btn btn-ghost py-0.5 px-1.5 text-[11px] text-gray-500 hover:text-gray-200" data-copy-target="rewriteIntro" title="复制前言"><i data-lucide="copy" class="w-3 h-3"></i></button>
+            </div>
+            <textarea class="input min-h-[90px] resize-y text-sm leading-relaxed" id="rewriteIntro" placeholder="生成后的前言会出现在这里…"></textarea>
+          </div>
+          <div class="result-field flex-1 flex flex-col">
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">正文</label>
+              <button type="button" class="btn btn-ghost py-0.5 px-1.5 text-[11px] text-gray-500 hover:text-gray-200" data-copy-target="rewriteResult" title="复制正文"><i data-lucide="copy" class="w-3 h-3"></i></button>
+            </div>
+            <textarea class="input flex-1 min-h-[240px] resize-y text-sm leading-relaxed" id="rewriteResult" placeholder="生成结果会显示在这里…"></textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</template>
+
+<!-- SKILLS -->
+<template id="tpl-skills">
+<div class="p-6 space-y-5">
+  <div class="page-header">
+    <div>
+      <div class="page-header-title"><i data-lucide="blocks" class="w-5 h-5 text-purple-400"></i>Skill 中心</div>
+      <div class="page-header-sub">RedFox 社区、Anthropic Hub、自定义 Skill 与规范模板</div>
+    </div>
+    <div class="page-header-actions">
+      <span class="text-[11px] text-gray-500" id="skill-update-status">正在检查更新…</span>
+      <button class="btn btn-ghost py-1.5 text-xs" data-action="checkSkillUpdates"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>检查更新</button>
+      <button class="btn btn-primary py-1.5 text-xs hidden" id="skill-update-button" data-action="updateCommunitySkills"><i data-lucide="git-compare" class="w-3.5 h-3.5"></i>查看更新</button>
+      <button class="btn btn-ghost py-1.5 text-xs" data-action="reclassifySkills" title="按 slug 规则重写所有 skill 分类（毫秒级，不用 LLM）"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>重新整理分类</button>
+    </div>
+  </div>
+  <div class="flex items-center gap-1 border-b border-white/10" id="skill-tabs">
+    <button class="skill-tab active px-3 py-1.5 text-sm rounded-md" data-skill-tab="redfox"><i data-lucide="flame" class="w-3.5 h-3.5 inline -mt-0.5"></i> RedFox 社区</button>
+    <button class="skill-tab px-3 py-1.5 text-sm rounded-md text-gray-400" data-skill-tab="hub"><i data-lucide="globe" class="w-3.5 h-3.5 inline -mt-0.5"></i> Skill Hub</button>
+    <button class="skill-tab px-3 py-1.5 text-sm rounded-md text-gray-400" data-skill-tab="custom"><i data-lucide="user-cog" class="w-3.5 h-3.5 inline -mt-0.5"></i> 我的 Skill</button>
+    <button class="skill-tab px-3 py-1.5 text-sm rounded-md text-gray-400" data-skill-tab="template"><i data-lucide="book-template" class="w-3.5 h-3.5 inline -mt-0.5"></i> 模板规范</button>
+  </div>
+
+  <!-- RedFox 社区 -->
+  <div id="skill-pane-redfox" class="space-y-4">
+    <div class="flex gap-2">
+      <input class="input search-input max-w-xl" id="skillSearch" placeholder="搜索 Skill 名称、描述或平台…" />
+      <select class="input" id="skillCategory" style="width:auto">
+        <option value="all">全部分类</option>
+        <option value="热榜">热榜</option>
+        <option value="信息源">信息源</option>
+        <option value="检索">检索</option>
+        <option value="创作">创作</option>
+        <option value="分析">分析</option>
+        <option value="媒体">媒体</option>
+        <option value="综合">综合</option>
+      </select>
+      <span class="pill pill-green ml-auto" id="skill-local-count">读取中…</span>
+    </div>
+    <div id="skill-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+  </div>
+
+  <!-- Skill Hub (Anthropic 官方) -->
+  <div id="skill-pane-hub" class="hidden space-y-4">
+    <!-- 已安装 -->
+    <div>
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="text-xs font-semibold text-gray-400">已安装 <span id="hub-installed-count" class="text-gray-600 ml-1"></span></h3>
+      </div>
+      <div id="hub-installed-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        <div class="text-center text-gray-500 py-4 text-xs">读取中…</div>
+      </div>
+    </div>
+    <!-- 搜索 Anthropic 全部 -->
+    <div>
+      <div class="flex items-center gap-2 mb-2">
+        <h3 class="text-xs font-semibold text-gray-400">从 Anthropic Hub 安装</h3>
+        <div class="flex-1 relative">
+          <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500"></i>
+          <input class="input pl-8 py-1 text-xs" id="hubSearchInput" placeholder="搜索 Anthropic 官方 Skill（如 pdf, docx, mcp-builder）…">
+        </div>
+        <button class="btn btn-primary py-1 text-xs" data-action="searchHubSkills"><i data-lucide="search" class="w-3 h-3"></i>搜索</button>
+      </div>
+      <div id="hub-search-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3"></div>
+    </div>
+  </div>
+
+  <!-- 我的 Skill -->
+  <div id="skill-pane-custom" class="hidden space-y-4">
+    <div class="flex items-center justify-between">
+      <p class="text-xs text-gray-500">存于 <code class="text-purple-300">data/skills/custom/</code>，迁移 data 卷即带走</p>
+      <div class="flex gap-2">
+        <button class="btn btn-ghost py-1.5 text-xs" data-action="refreshCustomSkills"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>刷新</button>
+        <button class="btn btn-primary py-1.5 text-xs" data-action="newCustomSkill"><i data-lucide="plus" class="w-3.5 h-3.5"></i>新建 Skill</button>
+      </div>
+    </div>
+    <div id="custom-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div class="text-center text-gray-500 py-8 text-sm">读取中…</div>
+    </div>
+  </div>
+
+  <!-- 模板规范 -->
+  <div id="skill-pane-template" class="hidden space-y-4">
+    <div class="glass rounded-xl p-4">
+      <h3 class="text-sm font-semibold mb-2 flex items-center gap-1.5"><i data-lucide="book-open" class="w-4 h-4 text-amber-400"></i>SKILL.md 规范</h3>
+      <p class="text-xs text-gray-400 mb-2">每个 skill 是一个目录，根目录有 <code class="text-purple-300">SKILL.md</code>，YAML frontmatter 含 <code class="text-purple-300">name</code> 和 <code class="text-purple-300">description</code> 两个字段。</p>
+      <pre class="text-[11px] bg-black/30 rounded-md p-3 overflow-x-auto text-gray-300">---
+name: my-skill
+description: 描述这个 skill 做什么、Claude 什么时候应该用它。
+---
+
+# 标题
+
+正文：工作流、约束、引用等。</pre>
+      <p class="text-[11px] text-gray-500 mt-2">完整规范：<a href="https://agentskills.io/specification" target="_blank" rel="noopener" class="text-purple-300 hover:underline">agentskills.io/specification</a></p>
+    </div>
+    <h3 class="text-sm font-semibold">从模板创建</h3>
+    <div id="template-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+  </div>
+</div>
+</template>
+
+<!-- AGENT -->
+<template id="tpl-agent">
+<div class="p-6 space-y-5">
+  <div class="page-header">
+    <div>
+      <div class="page-header-title"><i data-lucide="bot" class="w-5 h-5 text-cyan-400"></i>Agent 对话</div>
+      <div class="page-header-sub">调用本地 Agent CLI 执行 Skill 与项目任务</div>
+    </div>
+  </div>
+  <div class="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-5 lg:h-[calc(100vh-11rem)] lg:min-h-[620px]">
+    <aside class="glass rounded-xl p-4 flex flex-col min-h-0 h-[300px] lg:h-full">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <h2 class="text-sm font-semibold text-gray-200">对话记录</h2>
+          <p class="text-[10px] text-gray-600 mt-0.5">本地保存的 Agent 会话</p>
+        </div>
+        <button class="btn btn-ghost py-1.5 px-2 text-xs" data-action="startNewAgentThread" title="新建对话">
+          <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+        </button>
+      </div>
+      <div id="agent-thread-list" class="flex-1 min-h-0 overflow-y-auto space-y-1 pr-1 scrollbar-thin"></div>
+      <div class="mt-3 rounded-xl border border-white/10 bg-white/[0.02] p-3 space-y-3">
+        <div>
+          <label class="text-[10px] text-gray-500 mb-1.5 block">Agent</label>
+          <select class="input text-xs py-2" id="agentProvider"><option value="">读取本地 Agent…</option></select>
+          <p class="text-[10px] text-gray-600 mt-1.5 leading-relaxed" id="agent-provider-status">正在检测本地 CLI…</p>
+        </div>
+        <div>
+          <label class="text-[10px] text-gray-500 mb-1.5 block">权限模式</label>
+          <select class="input text-xs py-2" id="agentMode">
+            <option value="read">只读分析</option>
+            <option value="workspace">允许修改项目</option>
+          </select>
+        </div>
+      </div>
+    </aside>
+
+    <section class="glass-strong rounded-xl p-5 flex flex-col min-w-0 min-h-0 h-[620px] lg:h-full">
+      <div class="flex items-center justify-between gap-4 pb-4">
+        <div class="flex items-center gap-2 min-w-0">
+          <i data-lucide="bot" class="w-4 h-4 text-cyan-400 flex-shrink-0"></i>
+          <div class="min-w-0">
+            <div class="text-sm font-medium truncate" id="agent-current-name">本地 Agent</div>
+            <div class="text-[10px] text-gray-500 mt-0.5 truncate" id="agent-thread-name">新对话</div>
+          </div>
+        </div>
+        <button class="btn btn-ghost py-2 px-3 text-xs flex-shrink-0" data-action="clearCurrentAgentThread" title="清空对话">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>清空
+        </button>
+      </div>
+
+      <div class="flex-1 min-h-0 rounded-xl border border-white/10 bg-black/10 overflow-hidden flex flex-col">
+        <div id="agentMessages" class="flex-1 min-h-0 overflow-y-auto space-y-4 p-4 scrollbar-thin">
+          <div class="h-full min-h-[240px] flex items-center justify-center text-center" data-agent-empty>
+            <div class="rounded-xl border border-dashed border-white/10 bg-white/[0.02] px-8 py-7">
+              <i data-lucide="message-square" class="w-9 h-9 text-gray-600 mx-auto mb-3"></i>
+              <p class="text-sm text-gray-400">开始一段新对话</p>
+              <p class="text-xs text-gray-600 mt-1">输入 <code class="text-purple-300">/</code> 可选择 Skill</p>
+            </div>
+          </div>
+        </div>
+        <div id="agent-streaming" class="hidden flex items-center gap-2 mx-4 mb-3 rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-400">
+          <i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i>
+          <span id="agent-streaming-text">Agent 正在思考…</span>
+        </div>
+      </div>
+
+      <div class="mt-4 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+        <div id="agent-resume-hint" class="hidden mb-2 px-2.5 py-1.5 rounded-md bg-amber-500/10 border border-amber-500/25 text-[11px] text-amber-200"></div>
+        <div class="flex gap-3 items-end relative">
+          <div class="flex-1 relative">
+            <div id="agentSkillCommands" class="hidden absolute left-0 right-0 bottom-full mb-2 max-h-64 overflow-y-auto glass-strong rounded-xl p-2 z-20"></div>
+            <textarea class="input min-h-[72px] resize-y" id="agentInput" placeholder="输入 / 选择 Skill，例如：/wechat-account-analyzer 诊断"></textarea>
+          </div>
+          <button class="btn btn-primary h-10 flex-shrink-0" id="agentSend" data-action="sendAgentMessage">
+            <i data-lucide="send" class="w-4 h-4"></i>发送
+          </button>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+</template>
+
+<!-- SETTINGS -->
+<template id="tpl-settings">
+<div class="p-6 w-full max-w-none space-y-5">
+  <div class="page-header">
+    <div>
+      <div class="page-header-title"><i data-lucide="settings" class="w-5 h-5 text-purple-400"></i>设置</div>
+      <div class="page-header-sub">API Key、定时任务、通知渠道与自动选题配置</div>
+    </div>
+  </div>
+  <div id="kb-insecure-banner" class="hidden bg-red-500/10 border border-red-500/40 rounded-xl p-4 flex items-start gap-3">
+    <i data-lucide="alert-triangle" class="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5"></i>
+    <div class="min-w-0">
+      <div class="font-semibold text-red-300">知识库加密未启用</div>
+      <div class="text-xs text-red-200/80 mt-1"><code class="text-red-200">KB_ENCRYPTION_KEY</code> 未配置，Notion 等知识库凭证使用默认弱密钥加密，<b>cache.db 一旦泄漏即等于凭证泄漏</b>。请在 <code class="text-red-200">.env</code> 设置 <code class="text-red-200">KB_ENCRYPTION_KEY</code>（生成命令：<code class="text-red-200">openssl rand -hex 32</code>），重启服务生效。</div>
+    </div>
+  </div>
+  <div class="grid grid-cols-1 xl:grid-cols-3 gap-5 items-stretch">
+  <div class="glass rounded-xl p-4 min-w-0 h-[240px] flex flex-col">
+    <div class="settings-card-head">
+      <div class="min-w-0">
+        <h2 class="settings-card-title"><i data-lucide="timer" class="w-4 h-4 text-cyan-400"></i>自动选题主题</h2>
+        <p class="text-[11px] text-gray-500 mt-1">配置关键词、黑白名单、数据来源、API 预算和生成 CRON</p>
+      </div>
+      <button class="btn btn-primary py-1.5 px-2.5 text-xs flex-shrink-0" data-action="openInspirationConfigModal"><i data-lucide="plus" class="w-3.5 h-3.5"></i>新建</button>
+    </div>
+    <div id="inspiration-config-list" class="space-y-3 overflow-y-auto scrollbar-thin pr-1 flex-1 min-h-0"></div>
+  </div>
+  <div class="glass rounded-xl p-4 min-w-0 h-[290px] flex flex-col">
+    <div class="settings-card-head"><h2 class="settings-card-title"><i data-lucide="key" class="w-4 h-4 text-purple-400"></i>API Key 与环境</h2><div class="flex gap-1 flex-shrink-0"><button class="btn btn-ghost py-1 px-2 text-xs" data-action="openEnvModal" title="维护 .env"><i data-lucide="settings" class="w-3.5 h-3.5"></i></button><button class="btn btn-ghost py-1 px-2 text-xs text-amber-300" data-action="restartService" title="重启服务"><i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i></button><button class="btn btn-ghost py-1 px-2 text-xs" data-action="openRedfoxApply" title="申请 RedFox API"><i data-lucide="external-link" class="w-3.5 h-3.5"></i></button></div></div>
+    <div class="space-y-2 overflow-y-auto scrollbar-thin pr-1 flex-1 min-h-0">
+      <p class="text-xs text-gray-400 leading-relaxed">密钥只从服务端 <code class="text-purple-300">.env</code> 读取，不再返回浏览器。</p>
+      <div class="p-3 bg-white/[0.02] rounded-lg space-y-1.5">
+        <div class="flex items-center justify-between"><span class="text-sm">RedFox API</span><span class="pill pill-green" id="api-status-pill"><i data-lucide="check" class="w-3 h-3"></i>在线</span></div>
+        <div class="flex items-center justify-between"><span class="text-sm">LLM 服务</span><span class="pill pill-green" id="llm-status-pill"><i data-lucide="check" class="w-3 h-3"></i>在线</span></div>
+        <div class="flex items-center justify-between"><span class="text-sm">GitHub API</span><span class="pill pill-gray" id="github-status-pill"><i data-lucide="minus" class="w-3 h-3"></i>未配置</span></div>
+        <div class="flex items-center justify-between"><span class="text-sm">Notion</span><span class="pill pill-gray" id="notion-status-pill"><i data-lucide="minus" class="w-3 h-3"></i>未配置</span></div>
+        <div class="text-[11px] text-gray-500 pt-1" id="api-detail">连接状态读取中</div>
+      </div>
+    </div>
+  </div>
+  <div class="glass rounded-xl p-4 min-w-0 flex flex-col">
+    <div class="settings-card-head">
+      <h2 class="settings-card-title"><i data-lucide="gauge" class="w-4 h-4 text-amber-400"></i>API 额度与用量</h2>
+      <button class="btn btn-ghost py-1.5 text-xs" data-action="loadQuota"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>刷新</button>
+    </div>
+    <div id="quota-content" class="text-xs text-gray-500 flex-1">读取中…</div>
+  </div>
+  </div>
+
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-5 items-stretch">
+  <div class="glass rounded-xl p-4 min-w-0 flex flex-col">
+    <div class="settings-card-head">
+      <h2 class="settings-card-title"><i data-lucide="plug" class="w-4 h-4 text-pink-400"></i>外部服务接入</h2>
+    </div>
+    <div class="space-y-2 flex-1 overflow-y-auto scrollbar-thin pr-1 min-h-0">
+      <p class="text-xs text-gray-400 leading-relaxed">接入外部 MCP / API 服务，配置后才可在创作页发布、热榜搜索、Agent 调用。</p>
+      <div class="p-3 bg-white/[0.02] rounded-lg space-y-2">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2 min-w-0">
+            <i data-lucide="rss" class="w-4 h-4 text-cyan-400 flex-shrink-0"></i>
+            <div class="min-w-0">
+              <div class="text-sm">WeRss 公众号</div>
+              <div class="text-[11px] text-gray-500 truncate" id="wersss-status-text">未配置</div>
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5 flex-shrink-0">
+            <span class="pill pill-gray" id="wersss-status-pill"><i data-lucide="minus" class="w-3 h-3"></i>未配置</span>
+            <button class="btn btn-ghost py-1 px-2 text-xs" data-action="openWersssConfig" title="配置"><i data-lucide="settings" class="w-3.5 h-3.5"></i></button>
+            <button class="btn btn-ghost py-1 px-2 text-xs" data-action="forceWersssQr" title="重新扫码授权"><i data-lucide="qr-code" class="w-3.5 h-3.5"></i></button>
+          </div>
+        </div>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2 min-w-0">
+            <i data-lucide="book-open" class="w-4 h-4 text-pink-400 flex-shrink-0"></i>
+            <div class="min-w-0">
+              <div class="text-sm">小红书 MCP</div>
+              <div class="text-[11px] text-gray-500 truncate" id="xhs-mcp-status-text">未配置</div>
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5 flex-shrink-0">
+            <span class="pill pill-gray" id="xhs-mcp-status-pill"><i data-lucide="minus" class="w-3 h-3"></i>未配置</span>
+            <button class="btn btn-ghost py-1 px-2 text-xs" data-action="openXhsMcpConfig" title="配置"><i data-lucide="settings" class="w-3.5 h-3.5"></i></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-5 items-stretch">
+  <div class="glass rounded-xl p-5 min-w-0 h-[620px] flex flex-col">
+    <div class="settings-card-head">
+      <h2 class="settings-card-title"><i data-lucide="clock" class="w-4 h-4 text-cyan-400"></i>定时任务</h2>
+      <button class="btn btn-primary py-1.5 text-xs" data-action="openCronModal"><i data-lucide="plus" class="w-3.5 h-3.5"></i>新建任务</button>
+    </div>
+    <div id="cron-list" class="grid grid-cols-2 gap-2 overflow-y-auto scrollbar-thin pr-1 flex-1 min-h-0 content-start"></div>
+    <p class="text-[11px] text-gray-500 mt-3" id="scheduler-status">读取中…</p>
+  </div>
+  <div class="glass rounded-xl p-5 min-w-0 h-[620px] flex flex-col">
+    <div class="settings-card-head"><div><h2 class="settings-card-title"><i data-lucide="message-circle" class="w-4 h-4 text-indigo-400"></i>通知渠道</h2><p class="text-[11px] text-gray-500 mt-1">密钥保存在服务端，设置页明文显示。</p></div><button class="btn btn-primary py-1.5 px-2.5 text-xs flex-shrink-0" data-action="saveNotificationSettings"><i data-lucide="save" class="w-3.5 h-3.5"></i>保存</button></div>
+    <form id="notification-list" class="space-y-3 overflow-y-auto scrollbar-thin pr-1 flex-1 min-h-0"></form>
+  </div>
+  </div>
+</div>
+</template>
+
+<!-- ============= Add Account Modal ============= -->
+<div id="modal-host"></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

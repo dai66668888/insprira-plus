@@ -1,0 +1,119 @@
+# 灵感熔炉 · docker compose
+#
+# 启动：
+#   docker compose up -d
+#   docker compose logs -f
+#   docker compose down
+#
+# 默认配置：纯 web 模式（web UI + 数据卷），不带 Agent CLI。
+# 想用 Agent 功能（在 insprira 里调 claude/codex/kimi），按下面
+# 「Agent 接入」段落的注释，去掉对应 # 号即可。
+#
+# 镜像：首次需本地构建  docker compose build
+#
+# ─────────────────────────────────────────────────────────────
+# Agent 接入（按需打开，默认全部注释）
+# ─────────────────────────────────────────────────────────────
+#
+# 前提：
+#   · Linux x86_64 宿主（macOS/Windows 二进制架构不一致，跑不了）
+#   · 宿主已装好对应 CLI：
+#       npm i -g @anthropic-ai/claude-code @openai/codex
+#       # kimi-code 用官方脚本装到 ~/.kimi-code/
+#
+# 三件事一起改（缺一就跑不通）：
+#   1) 取消 environment 段 AGENT_ADAPTER/HOME/CLAUDE_BIN/CODEX_BIN/KIMI_BIN 注释
+#   2) 取消 entrypoint 注释（启动时同步宿主凭证到 /data/agent-home）
+#   3) 取消 volumes 段 CLI 二进制 + /seed/ 凭证种子挂载
+#   4) （claude 走宿主本地代理时）取消 network_mode: host 注释
+#
+# 为什么 HOME=/data/agent-home：
+#   容器内 HOME 重定向到 data 卷，claude/codex/kimi 的 session 写到
+#   /data/agent-home/.xxx/，跟着 docker 数据卷走，迁移即带走。
+#   entrypoint 启动时把宿主凭证从 /seed/ 复制过去，复用宿主登录态。
+#
+# 为什么 network_mode: host（可选）：
+#   claude 的 ~/.claude/settings.json 可能配 ANTHROPIC_BASE_URL=http://127.0.0.1:15721
+#   指向宿主的本地代理（如 GLM 中转）。bridge 网络下容器内 127.0.0.1 是容器自己，
+#   连不上宿主代理。host 模式共享宿主网络栈即可（Linux 专属，ports 配置会失效）。
+
+services:
+  insprira:
+    image: insprira:latest
+    container_name: insprira-dev
+    restart: unless-stopped
+    command: ["node", "--watch", "server.js"]
+    # entrypoint: ["/app/docker-entrypoint.sh"]   # ← Agent: 启用后启动时同步 /seed/ 凭证到 /data/agent-home
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      DATA_DIR: /data
+      NODE_ENV: development
+      XHS_MCP_URL: http://xiaohongshu-mcp:18060  # ← xiaohongshu-mcp 容器内网地址（profile xhs-mcp 启用后可达）
+      # ===== Agent 接入（默认注释）=====
+      # HOME: /data/agent-home          # ← Agent: CLI 的 ~/.xxx 重定向到 data 卷，session 跟着迁移走
+      # AGENT_ADAPTER: local            # ← Agent: 强制本地 spawn（默认 Docker 自动 sbx，需另装 sbx CLI）
+      # CLAUDE_BIN: /host/npm-global/bin/claude
+      # CODEX_BIN: /host/npm-global/bin/codex
+      # KIMI_BIN: /host/kimi-bin/kimi
+    volumes:
+      # 源码（dev 热重启）
+      - ./:/app
+      - /app/node_modules
+      # 数据持久化（cache.db + skills/ + agent-home/）
+      - ./data:/data
+      # ===== Agent 接入（默认注释）=====
+      # 宿主 CLI 二进制（claude + codex 装 npm-global；kimi 在 ~/.kimi-code/bin）
+      # - ${HOME}/.npm-global:/host/npm-global:ro
+      # - ${HOME}/.kimi-code/bin:/host/kimi-bin:ro
+      # 凭证种子（readonly，entrypoint 启动时复制到 /data/agent-home，宿主重 login 后下次启动自动跟）
+      # - ${HOME}/.claude.json:/seed/claude.json:ro
+      # - ${HOME}/.claude/settings.json:/seed/claude-settings.json:ro
+      # - ${HOME}/.codex/auth.json:/seed/codex-auth.json:ro
+      # - ${HOME}/.codex/config.toml:/seed/codex-config.toml:ro
+      # - ${HOME}/.kimi-code/credentials:/seed/kimi-credentials:ro
+      # - ${HOME}/.kimi-code/config.toml:/seed/kimi-config.toml:ro
+    ports:
+      - "8080:8080"
+    # network_mode: host   # ← Agent: claude 走宿主本地代理时打开（ports 自动失效）
+    extra_hosts:
+      - "xiaohongshu-mcp:172.21.0.1"   # xiaohongshu-mcp 用 host 网络时，insprira 通过网关访问
+
+# ─────────────────────────────────────────────────────────────
+# 小红书 MCP 接入（按需打开，默认注释）
+# ─────────────────────────────────────────────────────────────
+#
+# 前提：启动灵感熔炉时加 profile
+#   docker compose --profile xhs-mcp up -d
+#
+# 首次启动后到设置页「外部服务接入 → 小红书 MCP」扫码登录。
+# data/xhs-mcp/ 下存 cookies + 图片，迁移数据卷即带走登录态。
+#
+# 国内用户拉阿里云镜像更快（取消下方 image 的 # 注释切换）。
+#
+# 配置到 Docker 内部网络后，XHS_MCP_URL=http://xiaohongshu-mcp:18060
+# 自动生效，无需在设置页手动填 base_url。
+
+  # 小红书 MCP（xpzouying/xiaohongshu-mcp）— 扫码登录 + HTTP API + MCP 协议
+  # xiaohongshu-mcp:
+  #   image: xpzouying/xiaohongshu-mcp
+  #   container_name: xiaohongshu-mcp
+  #   restart: unless-stopped
+  #   init: true
+  #   tty: true
+  #   profiles: [xhs-mcp]
+  #   shm_size: 2gb
+  #   dns:
+  #     - 8.8.8.8       # 强制 IPv4 DNS，解决容器默认 IPv6 导致 Chrome 无法访问小红书
+  #     - 8.8.4.4
+  #   volumes:
+  #     - ./data/xhs-mcp/data:/app/data     # cookies + 登录态持久化
+  #     - ./data/xhs-mcp/images:/app/images # 发布用的图片
+  #   environment:
+  #     - ROD_BROWSER_BIN=/opt/browser/chrome  # 容器内 Chrome 路径
+  #     - COOKIES_PATH=/app/data/cookies.json
+  #     # 代理（如需翻墙访问小红书，取消注释）
+  #     # - XHS_PROXY=http://host.docker.internal:7890
+  #   ports:
+  #     - "18060:18060"
