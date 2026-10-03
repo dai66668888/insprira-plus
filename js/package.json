@@ -1,0 +1,6 @@
+{
+  "name": "insprira-frontend",
+  "private": true,
+  "type": "module",
+  "description": "js/ 目录整体是浏览器 ES Module（index.html 直接引用）。加这个 package.json 让 Node 测试（node:test 动态 import 内核文件）把它们识别为 ESM，根 package.json 的 CommonJS 不受影响。"
+}

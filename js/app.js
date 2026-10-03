@@ -16,6 +16,7 @@ import { renderSettings, openEnvModal, openRedfoxApply, saveEnvConfig, restartSe
 import { renderInspiration, renderInspirationCards, onInspirationFilterChange, trashInspiration, restoreInspiration, permanentlyDeleteInspiration, updateInspirationListStatus, updateTrashSelection, toggleAllTrash, batchDeleteTrash, toggleInspirationFavorite, feedbackInspiration, generateInspirations, updateInspirationStatus, sendIdeaToCreator, clearInspirationSelection, batchFavoriteInspirations, batchTrashInspirations, toggleInspirationSourceDropdown } from './pages/inspiration.js';
 import { renderKnowledgebase, renderLibrary, addToLibrary, removeFromLibrary, exportLibrary, switchKbTab, switchKbSource, renderKbLibrary, loadKbEntries, renderKbGrid, renderKbFolderTree, searchKb, openKbEntry, openKbEntryModal, analyzeKbEntry, showKbAnalysisResult, reanalyzeKbEntry, matchKbToInspirations, renderMatchedInspirations, linkKbMatchByIndex, openKbConfigModal, saveKbConfig, createKbEntry, submitKbEntry, linkKbToInspiration, linkKbPickerByIndex, sendKbToCreator, renderWersss, addWersssSub, loadWersssAvailable, selectWersssMp, searchWersssMp, confirmAddWersssSub, removeWersssSub, syncWersss, prefetchWersss, openWersssArticle, closeWersssArticleModal, selectKbFolder, toggleKbFolder } from './pages/knowledgebase.js';
 import { renderCreator, sendToCreator, doCheckWord, inspectSensitiveHtml, analyzeRewriteHotspots, openActionLogs, renderRewriteHotspots, selectRewriteHotspot, clearSelectedHotspot, doRewrite, copyRewrite, exportToKb, generateCover, clearCreatorSource } from './pages/creator.js';
+import { renderFormat, formatTool, formatLoadSample, formatClearDoc, formatCopyHtml, formatAiLayout, formatSelectCategory, formatSelectTemplate, formatResetThemeColor, formatInsertImage, formatPickLocalImage, formatInsertImageUrl } from './pages/format.js';
 import { renderMyAccounts, addMyAccount, submitMyAccount, removeMyAccount, editMyAccount, extractMyTracks, extractMyStyle, viewMyStyle, presetMyInspirations, createAutoConfigs } from './pages/my.js';
 import { renderSkills, filterSkills, openSkillDetail, openAgentWithSkill, checkSkillUpdates, updateCommunitySkillsUi, renderAgent, loadAgentThreads, saveAgentThreads, startNewAgentThread, switchAgentThread, clearCurrentAgentThread, deleteAgentThread, copySessionId, toggleResumeMode, renderAgentThreads, onAgentProviderChange, formatTime, copyAgentMessage, deleteAgentMessage, regenerateAgentMessage, toggleStreamingIndicator, handleAgentInputKeydown, renderAgentMessages, showSkillCommands, insertSkillCommand, sendAgentMessage, loadSkills, clearSkillCache, bindSkillToSource, reclassifySkills, bindSkillTabs, newCustomSkill, editCustomSkill, deleteCustomSkill, saveCustomSkill, refreshCustomSkills, renderCustomSkills, loadHubSkills, searchHubSkills, installHubSkill, uninstallHubSkill, renderSkillTemplates, generateFromTemplate } from './pages/agent.js';
 import { gotoPage, refreshCurrent, doGlobalSearch, toggleSidebar, openMobileSidebar, closeMobileSidebar } from './router.js';
@@ -358,6 +359,18 @@ registerAction('doRewrite', () => doRewrite());
 registerAction('copyRewrite', () => copyRewrite());
 registerAction('exportToKb', () => exportToKb());
 registerAction('generateCover', () => generateCover());
+// 公众号排版工作台
+registerAction('formatTool', (el, d) => formatTool(d.tool));
+registerAction('formatLoadSample', () => formatLoadSample());
+registerAction('formatClearDoc', () => formatClearDoc());
+registerAction('formatCopyHtml', () => formatCopyHtml());
+registerAction('formatAiLayout', () => formatAiLayout());
+registerAction('formatSelectCategory', (el, d) => formatSelectCategory(d.cat));
+registerAction('formatSelectTemplate', (el, d) => formatSelectTemplate(d.id));
+registerAction('formatResetThemeColor', () => formatResetThemeColor());
+registerAction('formatInsertImage', () => formatInsertImage());
+registerAction('formatPickLocalImage', () => formatPickLocalImage());
+registerAction('formatInsertImageUrl', () => formatInsertImageUrl());
 registerAction('selectRewriteHotspot', (_, d) => selectRewriteHotspot(Number(d.index)));
 registerAction('openSkillDetail', (_, d) => openSkillDetail(d.slug));
 registerAction('openAgentWithSkill', (_, d) => openAgentWithSkill(d.slug));

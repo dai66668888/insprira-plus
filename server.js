@@ -925,6 +925,11 @@ async function handleLocalApi(req, res, url) {
     return true;
   }
 
+  // ========== 公众号排版助手（AI 一键排版） ==========
+  if (await require('./lib/routes/mp-format').tryRoute(req, res, url, { llm: llmInstance })) {
+    return true;
+  }
+
   // ========== 外部数据上报（浏览器插件，INGEST_TOKEN 鉴权） ==========
   if (await require('./lib/routes/ingest').tryRoute(req, res, url, { ENV_FILE })) {
     return true;

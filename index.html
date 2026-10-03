@@ -128,6 +128,9 @@
           <i data-lucide="sparkles" class="w-4 h-4"></i><span class="nav-text">AI 创作</span>
           <span class="ml-auto pill pill-brand nav-badge">New</span>
         </a>
+        <a class="nav-item flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm" data-page="format" data-action="gotoPage">
+          <i data-lucide="paintbrush" class="w-4 h-4"></i><span class="nav-text">公众号排版</span>
+        </a>
         <a class="nav-item flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm" data-page="skills" data-action="gotoPage">
           <i data-lucide="blocks" class="w-4 h-4"></i><span class="nav-text">Skill 中心</span>
           <span class="ml-auto text-[10px] text-gray-500 nav-badge" id="nav-skill-count">…</span>
@@ -766,6 +769,83 @@
             <textarea class="input flex-1 min-h-[240px] resize-y text-sm leading-relaxed" id="rewriteResult" placeholder="生成结果会显示在这里…"></textarea>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+</template>
+
+<!-- FORMAT 公众号排版 -->
+<template id="tpl-format">
+<div class="p-6 space-y-5">
+  <div class="page-header">
+    <div>
+      <div class="page-header-title"><i data-lucide="paintbrush" class="w-5 h-5 text-pink-400"></i>公众号排版</div>
+      <div class="page-header-sub">Markdown → 微信公众号内联样式 HTML · 实时预览 · 一键复制进后台</div>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-ghost py-1.5 text-xs" data-action="formatLoadSample"><i data-lucide="file-text" class="w-3.5 h-3.5"></i>载入示例</button>
+      <button class="btn btn-ghost py-1.5 text-xs text-red-400" data-action="formatClearDoc"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i>清空</button>
+      <button class="btn btn-primary py-1.5 text-xs" data-action="formatAiLayout" id="formatAiBtn" title="AI 只优化排版结构，不改写内容（需在设置页配置 LLM）"><i data-lucide="sparkles" class="w-3.5 h-3.5"></i>AI 一键排版</button>
+      <button class="btn btn-primary py-1.5 text-xs" data-action="formatCopyHtml" title="复制带内联样式的 HTML（产物未经消毒，仅用于粘贴到公众号编辑器）"><i data-lucide="copy" class="w-3.5 h-3.5"></i>复制排版</button>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_400px_320px] gap-4 items-start">
+    <!-- 左：编辑区 -->
+    <div class="glass-strong rounded-xl p-4 flex flex-col min-h-[560px] xl:min-h-[680px]">
+      <div class="flex flex-wrap items-center gap-1 mb-2" id="formatToolbar">
+        <button class="btn btn-ghost py-1 px-2 text-xs" data-action="formatTool" data-tool="h1" title="一级标题"><i data-lucide="heading-1" class="w-3.5 h-3.5"></i></button>
+        <button class="btn btn-ghost py-1 px-2 text-xs" data-action="formatTool" data-tool="h2" title="二级标题"><i data-lucide="heading-2" class="w-3.5 h-3.5"></i></button>
+        <button class="btn btn-ghost py-1 px-2 text-xs" data-action="formatTool" data-tool="h3" title="三级标题"><i data-lucide="heading-3" class="w-3.5 h-3.5"></i></button>
+        <span class="w-px h-4 bg-white/10 mx-0.5"></span>
+        <button class="btn btn-ghost py-1 px-2 text-xs" data-action="formatTool" data-tool="bold" title="加粗"><i data-lucide="bold" class="w-3.5 h-3.5"></i></button>
+        <button class="btn btn-ghost py-1 px-2 text-xs" data-action="formatTool" data-tool="italic" title="斜体"><i data-lucide="italic" class="w-3.5 h-3.5"></i></button>
+        <button class="btn btn-ghost py-1 px-2 text-xs" data-action="formatTool" data-tool="del" title="删除线"><i data-lucide="strikethrough" class="w-3.5 h-3.5"></i></button>
+        <button class="btn btn-ghost py-1 px-2 text-xs" data-action="formatTool" data-tool="hl" title="==高亮=="><i data-lucide="highlighter" class="w-3.5 h-3.5"></i></button>
+        <button class="btn btn-ghost py-1 px-2 text-xs" data-action="formatTool" data-tool="sup" title="上标"><i data-lucide="superscript" class="w-3.5 h-3.5"></i></button>
+        <button class="btn btn-ghost py-1 px-2 text-xs" data-action="formatTool" data-tool="sub" title="下标"><i data-lucide="subscript" class="w-3.5 h-3.5"></i></button>
+        <span class="w-px h-4 bg-white/10 mx-0.5"></span>
+        <button class="btn btn-ghost py-1 px-2 text-xs" data-action="formatTool" data-tool="quote" title="引用"><i data-lucide="quote" class="w-3.5 h-3.5"></i></button>
+        <button class="btn btn-ghost py-1 px-2 text-xs" data-action="formatTool" data-tool="ul" title="无序列表"><i data-lucide="list" class="w-3.5 h-3.5"></i></button>
+        <button class="btn btn-ghost py-1 px-2 text-xs" data-action="formatTool" data-tool="ol" title="有序列表"><i data-lucide="list-ordered" class="w-3.5 h-3.5"></i></button>
+        <button class="btn btn-ghost py-1 px-2 text-xs" data-action="formatTool" data-tool="table" title="表格"><i data-lucide="table" class="w-3.5 h-3.5"></i></button>
+        <button class="btn btn-ghost py-1 px-2 text-xs" data-action="formatTool" data-tool="code" title="代码块"><i data-lucide="code" class="w-3.5 h-3.5"></i></button>
+        <button class="btn btn-ghost py-1 px-2 text-xs" data-action="formatTool" data-tool="hr" title="分隔线"><i data-lucide="minus" class="w-3.5 h-3.5"></i></button>
+        <span class="w-px h-4 bg-white/10 mx-0.5"></span>
+        <button class="btn btn-ghost py-1 px-2 text-xs" data-action="formatTool" data-tool="link" title="链接"><i data-lucide="link" class="w-3.5 h-3.5"></i></button>
+        <button class="btn btn-ghost py-1 px-2 text-xs" data-action="formatInsertImage" title="插入图片（URL / 本地文件）"><i data-lucide="image" class="w-3.5 h-3.5"></i></button>
+      </div>
+      <textarea id="formatEditor" class="input w-full flex-1 resize-none min-h-0 text-sm leading-relaxed font-mono" placeholder="在此粘贴或编写 Markdown…（支持直接粘贴截图，自动转为插图占位符）"></textarea>
+      <div class="flex items-center justify-between mt-2 text-[11px] text-gray-500 flex-wrap gap-1">
+        <span id="formatWordCount">0 字 · 约 1 分钟读完</span>
+        <span>支持 ==高亮== ^上标^ ~下标~ 扩展语法</span>
+      </div>
+    </div>
+
+    <!-- 中：预览区（手机框） -->
+    <div class="flex flex-col items-center min-w-0">
+      <div class="rounded-[2rem] border border-white/15 bg-black/30 p-2 w-full max-w-[378px] shadow-xl">
+        <div class="rounded-[1.6rem] bg-white overflow-hidden" style="height:620px">
+          <div id="formatPreview" class="h-full overflow-y-auto scrollbar-thin"></div>
+        </div>
+      </div>
+      <div class="text-[10px] text-gray-500 mt-2 text-center">预览已消毒（保留内联样式，禁脚本/iframe）· 与粘贴进公众号的效果一致</div>
+    </div>
+
+    <!-- 右：设置区 -->
+    <div class="space-y-4 min-w-0">
+      <div class="glass rounded-xl p-4">
+        <div class="text-xs font-semibold mb-2 flex items-center gap-1.5"><i data-lucide="palette" class="w-3.5 h-3.5 text-pink-400"></i>模板 <span class="text-[10px] text-gray-500 font-normal">6 分类 · 72 套</span></div>
+        <div class="flex flex-wrap gap-1 mb-3" id="formatCategoryTabs"></div>
+        <div class="grid grid-cols-2 gap-2 max-h-[340px] overflow-y-auto scrollbar-thin pr-1" id="formatTemplateGrid"></div>
+      </div>
+      <div class="glass rounded-xl p-4">
+        <div class="text-xs font-semibold mb-2 flex items-center gap-1.5"><i data-lucide="sliders-horizontal" class="w-3.5 h-3.5 text-amber-400"></i>微调</div>
+        <div id="formatTweaksPanel" class="grid grid-cols-2 gap-2 text-xs"></div>
+      </div>
+      <div class="text-[10px] text-gray-600 leading-relaxed">
+        排版内核基于开源项目 <a class="text-purple-300 hover:underline" href="https://github.com/mspringjade/wechat-formatter" target="_blank" rel="noopener noreferrer">WeChat Formatter</a>（作者 mspringjade · AGPL-3.0）移植。
       </div>
     </div>
   </div>

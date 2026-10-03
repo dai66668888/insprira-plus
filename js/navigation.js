@@ -8,6 +8,7 @@ import { renderSearch } from './pages/search.js';
 import { renderTracker } from './pages/tracker.js';
 import { renderKnowledgebase } from './pages/knowledgebase.js';
 import { renderCreator } from './pages/creator.js';
+import { renderFormat } from './pages/format.js';
 import { renderSkills } from './pages/agent.js';
 import { renderAgent } from './pages/agent.js';
 import { renderSettings } from './pages/settings.js';
@@ -22,6 +23,7 @@ export const PAGES = {
   library:   { tpl: 'tpl-library',   init: renderKnowledgebase },
   knowledgebase: { tpl: 'tpl-library', init: renderKnowledgebase },
   creator:   { tpl: 'tpl-creator',   init: renderCreator },
+  format:    { tpl: 'tpl-format',    init: renderFormat },
   skills:    { tpl: 'tpl-skills',    init: renderSkills },
   agent:     { tpl: 'tpl-agent',     init: renderAgent },
   settings:  { tpl: 'tpl-settings',  init: renderSettings },

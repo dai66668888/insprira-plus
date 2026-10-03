@@ -7,6 +7,7 @@ import { renderInspiration } from './pages/inspiration.js';
 import { renderSearch, doSearch, showSearchHistory } from './pages/search.js';
 import { renderTracker } from './pages/tracker.js';
 import { renderLibrary } from './pages/knowledgebase.js';
+import { renderFormat } from './pages/format.js';
 import { renderSkills, clearSkillCache } from './pages/agent.js';
 import { renderAgent } from './pages/agent.js';
 import { renderSettings } from './pages/settings.js';
@@ -21,6 +22,7 @@ export function refreshCurrent() {
   else if (currentPage === 'library' || currentPage === 'knowledgebase') renderLibrary();
   else if (currentPage === 'skills') { clearSkillCache(); renderSkills(); }
   else if (currentPage === 'agent') renderAgent();
+  else if (currentPage === 'format') renderFormat();
   else if (currentPage === 'settings') renderSettings();
   else if (currentPage === 'search') { showSearchHistory(); }
   toast('已刷新', 'success');

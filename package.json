@@ -19,6 +19,7 @@
     "puppeteer-core": "^24.43.1"
   },
   "devDependencies": {
+    "marked": "^15.0.12",
     "tailwindcss": "^3.4.17"
   }
 }

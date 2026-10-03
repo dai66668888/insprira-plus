@@ -33,12 +33,20 @@ test('detectOutboundIp：多源容灾，返回合法 IPv4', async () => {
 
 test('findChrome：CHROME_PATH 环境变量优先', () => {
   const old = process.env.CHROME_PATH;
-  process.env.CHROME_PATH = '/usr/bin/google-chrome'; // 本机存在；不存在时该断言需在无 Chrome 环境调整
+  // findChrome 会校验路径存在性，用临时真实文件代替硬编码路径，
+  // 不依赖测试机的操作系统与 Chrome 安装情况（原作者注：无 Chrome 环境需调整该断言）
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const fakeChrome = path.join(os.tmpdir(), `insprira-test-chrome-${process.pid}`);
+  fs.writeFileSync(fakeChrome, '');
   try {
-    assert.equal(findChrome(), '/usr/bin/google-chrome');
-    process.env.CHROME_PATH = '/nonexistent/chrome';
-    assert.notEqual(findChrome(), '/nonexistent/chrome'); // 不存在的路径被忽略
+    process.env.CHROME_PATH = fakeChrome;
+    assert.equal(findChrome(), fakeChrome);
+    process.env.CHROME_PATH = path.join(os.tmpdir(), 'nonexistent-chrome-xyz');
+    assert.notEqual(findChrome(), process.env.CHROME_PATH); // 不存在的路径被忽略
   } finally {
     if (old === undefined) delete process.env.CHROME_PATH; else process.env.CHROME_PATH = old;
+    fs.rmSync(fakeChrome, { force: true });
   }
 });
