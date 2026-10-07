@@ -1,3 +1,7 @@
+// ============= 通用工具 =============
+// markdown-guard 是纯函数模块（无 DOM 依赖），供 renderMarkdown 在进 marked 前清洗输入
+import { extractDataUrls, markdownToPlainText, normalizeMarkdown } from './core/markdown-guard.js';
+
 // ============= 格式化 =============
 export const fmt = n => {
   if (n == null || n === '') return '--';
@@ -38,18 +42,28 @@ export const safeExternalUrl = value => {
 };
 
 // ============= Markdown 渲染 =============
+// 喂给 marked 之前先过一遍解析护栏（js/core/markdown-guard.js）：畸形图片标签、超长定界符串、
+// 超深引用嵌套都会让 marked 递归爆栈（页面报「…Maximum call stack size exceeded Please report this
+// to https://github.com/markedjs/marked.」，那句尾巴是 marked 给任何解析期异常加的）。
+// 这里再兜一层 try-catch：解析异常一律降级输出纯文本，避免整页卡死。
 export function renderMarkdown(value) {
   const source = String(value || '');
   if (!source) return '<p class="text-gray-500">（无内容）</p>';
   if (!window.marked || !window.DOMPurify) {
     return `<pre class="whitespace-pre-wrap">${esc(source)}</pre>`;
   }
-  const html = marked.parse(source, { gfm: true, breaks: true });
-  return DOMPurify.sanitize(html, {
-    USE_PROFILES: { html: true },
-    FORBID_TAGS: ['style', 'iframe', 'object', 'embed', 'form'],
-    FORBID_ATTR: ['style'],
-  });
+  try {
+    // dataURL 图片先抽成短占位符（marked 不必解析几百 KB 的 base64），产物渲染后回填
+    const { markdown, restore } = extractDataUrls(source);
+    const html = marked.parse(normalizeMarkdown(markdown), { gfm: true, breaks: true });
+    return DOMPurify.sanitize(restore(html), {
+      USE_PROFILES: { html: true },
+      FORBID_TAGS: ['style', 'iframe', 'object', 'embed', 'form'],
+      FORBID_ATTR: ['style'],
+    });
+  } catch {
+    return `<pre class="whitespace-pre-wrap">${esc(markdownToPlainText(source))}</pre>`;
+  }
 }
 
 export function renderWechatArticle(value) {

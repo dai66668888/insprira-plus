@@ -212,3 +212,76 @@ test('DEFAULT_TWEAKS 与方案 §5.1 约定一致', () => {
     h2Layout: 'left',
   });
 });
+
+// ============= ⑪-⑭ 防爆栈护栏回归 =============
+// 修复前的表现：页面报
+//   「渲染失败：Maximum call stack size exceeded Please report this to https://github.com/markedjs/marked.」
+// 那句尾巴是 marked 的 Marked.onError 给任何解析期异常加的，真实原因是 V8 调用栈耗尽。
+
+test('⑪ 定界符风暴与超深引用不再爆栈（本次 bug 的直接回归）', () => {
+  // 行内：几千对 ** 会让 Parser.parseInline 逐层递归
+  const storm = render(
+    `![图](https://example.com/a.png)\n\n${'**'.repeat(4000)}x${'**'.repeat(4000)}`,
+    'minimalist-0',
+  );
+  assert.ok(storm.includes('<img src="https://example.com/a.png"'), '图片仍应正常渲染');
+  assert.ok(storm.includes('x'), '文字内容不能丢');
+  // 块级：单行几千个 > 会让 Lexer.blockTokens 递归
+  const quotes = render(`${'>'.repeat(20000)} x`, 'minimalist-0');
+  assert.ok(quotes.length > 0);
+});
+
+test('⑫ 畸形图片标签（未闭合 / URL 与 alt 含定界符）被修好而不是漏回正文', () => {
+  const unclosed = render('![图](https://example.com/a.png', 'minimalist-0');
+  assert.match(unclosed, /<img src="https:\/\/example\.com\/a\.png"/, '未闭合图片应补上右括号后正常渲染');
+  const dirty = render(`![图*片](https://example.com/${'*'.repeat(2000)}.png)`, 'minimalist-0');
+  assert.match(dirty, /<img src="https:\/\/example\.com\//, 'URL 里的定界符不应破坏图片');
+  assert.ok(dirty.includes('alt="图*片"'), `alt 转义后展示应保持原文：${dirty.slice(0, 200)}`);
+});
+
+test('⑬ dataURL 图片不进解析器，产物仍回填完整 dataURL', async () => {
+  const { makeEngine } = await import('../js/core/wechat-format/engine.js');
+  const seen = [];
+  // 记录真正交给 marked.parse 的源码（构造函数返回对象可覆盖 new 的结果）
+  function SpyMarked(...args) {
+    const instance = new Marked(...args);
+    const originalParse = instance.parse;
+    instance.parse = (src, opts) => {
+      seen.push(src);
+      return originalParse.call(instance, src, opts);
+    };
+    return instance;
+  }
+  const spyEngine = makeEngine({ Marked: SpyMarked, Renderer });
+  const tpl = spyEngine.allTemplates.find(t => t.id === 'minimalist-0');
+  const dataUrl = `data:image/png;base64,${'A'.repeat(4096)}==`;
+  const html = spyEngine.renderArticle(`![截图](${dataUrl})`, tpl, { ...spyEngine.DEFAULT_TWEAKS });
+
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].includes('base64'), false, 'marked 不应看到 dataURL（几百 KB 的无断点 token）');
+  assert.ok(html.includes(dataUrl), '渲染产物必须回填完整 dataURL');
+  assert.match(html, /alt="截图"/);
+});
+
+test('⑭ renderArticleSafe 解析异常时降级纯文本，不抛异常、不显示 marked 的尾巴', async () => {
+  const { makeEngine } = await import('../js/core/wechat-format/engine.js');
+  const MARKED_TAIL = 'Maximum call stack size exceeded\nPlease report this to https://github.com/markedjs/marked.';
+  function ThrowingMarked() {
+    const instance = new Marked();
+    instance.parse = () => { throw new RangeError(MARKED_TAIL); };
+    return instance;
+  }
+  const safeEngine = makeEngine({ Marked: ThrowingMarked, Renderer });
+  const tpl = safeEngine.allTemplates.find(t => t.id === 'minimalist-0');
+
+  const degraded = safeEngine.renderArticleSafe('# 标题\n\n正文段落。', tpl, { ...safeEngine.DEFAULT_TWEAKS });
+  assert.equal(degraded.degraded, true);
+  assert.equal(degraded.reason, 'Maximum call stack size exceeded', '应剥掉 marked 追加的尾巴');
+  assert.ok(degraded.html.includes('# 标题'), '降级产物要保留原文');
+  assert.equal(degraded.html.includes('markedjs/marked'), false);
+
+  // 正常输入不降级
+  const ok = engine.renderArticleSafe('正文段落。', engine.allTemplates.find(t => t.id === 'minimalist-0'), tweaks());
+  assert.equal(ok.degraded, false);
+  assert.equal(ok.reason, '');
+});

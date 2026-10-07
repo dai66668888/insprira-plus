@@ -8,6 +8,7 @@ import { toast, Modal } from '../components.js';
 import { initIcons } from '../icons.js';
 import { localApi } from '../api.js';
 import { makeEngine, DEFAULT_TWEAKS } from '../core/wechat-format/engine.js';
+import { markdownToPlainText, repairPlaceholderImageSyntax } from '../core/markdown-guard.js';
 
 const RENDER_DEBOUNCE = 300;   // 预览重渲染防抖
 const SAVE_DEBOUNCE = 600;     // Markdown 草稿落 localStorage 防抖
@@ -179,11 +180,14 @@ function insertAtCursor(text) {
 }
 
 // 渲染前把 #img-N 占位符替换为真实 dataURL / URL
+// 注意：AI 排版/手工编辑常把右括号吃掉（![图](#img-1），那时占位符匹配不上、图片直接丢失，
+// 所以先用 repairPlaceholderImageSyntax 补括号再替换。
 function resolvePlaceholderImages(markdown) {
-  return String(markdown || '').replace(/(!\[[^\]]*\]\()#(img-\d+)(\))/g, (m, pre, id, post) => {
-    const url = imageMap.get(id);
-    return url ? `${pre}${url}${post}` : m;
-  });
+  return repairPlaceholderImageSyntax(String(markdown || ''))
+    .replace(/(!\[[^\]]*\]\()#(img-\d+)(\))/g, (m, pre, id, post) => {
+      const url = imageMap.get(id);
+      return url ? `${pre}${url}${post}` : m;
+    });
 }
 
 // ============= 工具栏（移植 use-markdown-tools.ts 子集） =============
@@ -571,6 +575,9 @@ export function formatResetThemeColor() {
 }
 
 // ============= 中栏：预览渲染管线 =============
+// 排版内核已内置防爆栈护栏（js/core/markdown-guard.js），这里再用 renderArticleSafe 兜一层：
+// 解析异常（典型是 marked 的 "Maximum call stack size exceeded Please report this to …"）
+// 一律降级为纯文本预览，绝不把异常抛给页面。
 function doRender() {
   const preview = document.getElementById('formatPreview');
   const editor = document.getElementById('formatEditor');
@@ -582,15 +589,25 @@ function doRender() {
   const tpl = getTemplate(currentTemplateId);
   if (!tpl) return;
   const markdown = resolvePlaceholderImages(editor.value);
-  let html;
   try {
-    html = engine.renderArticle(markdown, tpl, currentTweaks);
+    const result = engine.renderArticleSafe(markdown, tpl, currentTweaks);
+    preview.innerHTML =
+      (result.degraded ? renderDegradeNotice(result.reason) : '') + sanitizePreview(result.html);
   } catch (err) {
-    preview.innerHTML = `<div class="p-4 text-xs text-red-500">渲染失败：${esc(err.message)}</div>`;
-    return;
+    // 连降级渲染都炸（例如消毒库异常）：把原文当纯文本贴出来，绝不再抛
+    preview.innerHTML = renderDegradeNotice(err?.message) + plainTextPreview(markdown);
   }
-  preview.innerHTML = sanitizePreview(html);
   postProcessPreview(preview);
+}
+
+// 降级提示条：用内联样式，避免新增 Tailwind class 又要重跑 npm run build
+function renderDegradeNotice(reason) {
+  const detail = reason ? `：${esc(reason)}` : '';
+  return `<div class="p-3 text-xs" style="color: #b45309; background-color: rgba(245, 158, 11, 0.12);">排版内核已降级为纯文本渲染${detail}。内容不会丢失，可继续复制原文。</div>`;
+}
+
+function plainTextPreview(markdown) {
+  return `<pre class="whitespace-pre-wrap p-4 text-xs">${esc(markdownToPlainText(markdown))}</pre>`;
 }
 
 // 预览区消毒：自家引擎产物，保留 style/bgcolor 等内联样式，但禁脚本类标签与事件属性。
@@ -622,10 +639,11 @@ function postProcessPreview(container) {
 }
 
 // ============= 复制排版 =============
+// 返回 { html, degraded, reason }；内核不可用时返回 null
 function buildArticleHtml(markdown) {
   const tpl = getTemplate(currentTemplateId);
-  if (!engine || !tpl) return '';
-  return engine.renderArticle(resolvePlaceholderImages(markdown), tpl, currentTweaks);
+  if (!engine || !tpl) return null;
+  return engine.renderArticleSafe(resolvePlaceholderImages(markdown), tpl, currentTweaks);
 }
 
 // 复制产物不过 DOMPurify：唯一去向是公众号编辑器粘贴板（按钮 tooltip 已提示）。
@@ -633,8 +651,9 @@ function buildArticleHtml(markdown) {
 export async function formatCopyHtml() {
   const editor = document.getElementById('formatEditor');
   if (!editor || !editor.value.trim()) { toast('请先输入或载入 Markdown', 'error'); return; }
-  const html = buildArticleHtml(editor.value);
-  if (!html) { toast('排版内核不可用', 'error'); return; }
+  const result = buildArticleHtml(editor.value);
+  if (!result) { toast('排版内核不可用', 'error'); return; }
+  const html = result.html;
   try {
     if (navigator.clipboard && typeof window.ClipboardItem === 'function') {
       await navigator.clipboard.write([new ClipboardItem({
@@ -644,7 +663,12 @@ export async function formatCopyHtml() {
     } else {
       legacyRichCopy(html);
     }
-    toast('排版 HTML 已复制，去公众号后台正文区粘贴即可', 'success');
+    toast(
+      result.degraded
+        ? '内容过于复杂，已降级为纯文本复制（排版样式不可用）'
+        : '排版 HTML 已复制，去公众号后台正文区粘贴即可',
+      result.degraded ? 'error' : 'success',
+    );
   } catch (err) {
     toast('复制失败：' + (err.message || err), 'error');
   }

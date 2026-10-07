@@ -15,11 +15,64 @@
 // 7. 表格：cellpadding/cellspacing 归零 + <td bgcolor> 属性兜底；
 // 8. 扩展语法：==高亮==、^上标^、~下标~；
 // 9. breaks: true, gfm: true。
+// 10. 防爆栈护栏（见 js/core/markdown-guard.js）：解析前清洗 + 渲染器递归深度封顶 +
+//     renderArticleSafe 纯文本降级。修的是 marked 的
+//     「Maximum call stack size exceeded Please report this to …」——那句尾巴是
+//     Marked.onError 给任何解析期异常加的，真实原因是 V8 调用栈耗尽。
 import { hexToRgba, getStyleValue, ensureStyleValue, getStylesByCategory } from './templates.js';
+import {
+  MAX_INLINE_DEPTH,
+  cleanParseError,
+  escapeHtml,
+  extractDataUrls,
+  markdownToPlainText,
+  normalizeMarkdown,
+} from '../markdown-guard.js';
+
+// 会再次进入 parser 的渲染方法：统一套递归深度护栏
+const GUARDED_RENDERER_METHODS = [
+  'heading', 'paragraph', 'blockquote', 'list',
+  'strong', 'em', 'del', 'link', 'table', 'tablecell',
+];
+
+// 用户自定义主题色时按分类整体重生成样式
+function resolveTemplate(baseTemplate, formatTweaks) {
+  return formatTweaks.themeColor
+    ? {
+        ...baseTemplate,
+        ...getStylesByCategory(baseTemplate.category, formatTweaks.themeColor),
+      }
+    : baseTemplate;
+}
+
+// 文章容器样式：tweaks 落到容器（字号/行高/字间距/四向留白）+ 底色兜底
+function resolveContainerStyle(template, formatTweaks) {
+  return ensureStyleValue(
+    ensureStyleValue(
+      `${template.containerStyle} font-size: ${formatTweaks.fontSize}px; line-height: ${formatTweaks.lineHeight}; letter-spacing: ${formatTweaks.letterSpacing}px; color: ${template.baseStyle.color}; font-family: ${template.baseStyle.fontFamily}; word-wrap: break-word; word-break: break-all; box-sizing: border-box;`,
+      'padding',
+      `${formatTweaks.pagePaddingTop}px ${formatTweaks.pagePaddingRight}px ${formatTweaks.pagePaddingBottom}px ${formatTweaks.pagePaddingLeft}px`,
+    ),
+    'background-color',
+    template.backgroundColor,
+  );
+}
+
+function wrapArticle(template, formatTweaks, innerHtml) {
+  return `<section style="width: 100%; max-width: 100%; box-sizing: border-box; background-color: ${template.backgroundColor};"><section style="${resolveContainerStyle(template, formatTweaks)}">${innerHtml}</section></section>`;
+}
+
+// 解析彻底失败时的纯文本产物：容器样式照旧，正文是一段 <pre> 原文（已实体转义）
+function renderPlainTextArticle(markdownText, baseTemplate, formatTweaks) {
+  const template = resolveTemplate(baseTemplate, formatTweaks);
+  const text = escapeHtml(markdownToPlainText(markdownText));
+  return `<section style="width: 100%; max-width: 100%; box-sizing: border-box; background-color: ${template.backgroundColor};"><section style="${resolveContainerStyle(template, formatTweaks)}"><pre style="margin: 0; white-space: pre-wrap; word-break: break-word; font-family: inherit;">${text}</pre></section></section>`;
+}
 
 /**
- * 创建 renderArticle(markdownText, baseTemplate, formatTweaks)。
+ * 创建渲染器：renderArticle 会抛异常（真实原因），renderArticleSafe 永不抛（失败降级纯文本）。
  * @param {{Marked: Function, Renderer: Function}} markedDeps marked 的 Marked 与 Renderer 类（注入以解耦全局）
+ * @returns {{renderArticle: Function, renderArticleSafe: Function}}
  */
 export function createArticleRenderer({ Marked, Renderer }) {
   /**
@@ -28,18 +81,41 @@ export function createArticleRenderer({ Marked, Renderer }) {
    * @param {import('./engine.js').FormatTweaks} formatTweaks
    * @returns {string} 内联样式 HTML（<section> 嵌套结构）
    */
-  return function renderArticle(markdownText, baseTemplate, formatTweaks) {
-    // 用户自定义主题色时按分类整体重生成样式
-    const template = formatTweaks.themeColor
-      ? {
-          ...baseTemplate,
-          ...getStylesByCategory(baseTemplate.category, formatTweaks.themeColor),
-        }
-      : baseTemplate;
+  function renderArticle(markdownText, baseTemplate, formatTweaks) {
+    const template = resolveTemplate(baseTemplate, formatTweaks);
+    // ① dataURL 图片抽成短占位符（渲染后回填）；② 修畸形图片 / 折定界符风暴 / 封块级嵌套
+    const { markdown: withoutDataUrls, restore } = extractDataUrls(markdownText);
+    const safeMarkdown = normalizeMarkdown(withoutDataUrls);
 
     const markedInstance = new Marked();
     const customRenderer = new Renderer();
     const defaultRenderer = new Renderer();
+
+    // ---- 递归深度护栏 ----
+    // marked 的行内嵌套（em/strong/del/link/扩展语法）是「每层递归一次 parseInline」，
+    // 定界符风暴或畸形图片漏回正文时层数会跟输入长度一起涨，最终爆栈。
+    // 这里给每个会再进 parser 的渲染方法套一层计数：超过 MAX_INLINE_DEPTH 就直接把
+    // 该节点的原文（token.raw）转义输出，不再往下递归——宁可少渲染一点，也不让页面崩。
+    let renderDepth = 0;
+    const degradeToSource = (token) => escapeHtml(String((token && token.raw) || ''));
+    const guardRenderer = (rendererFn) => function guarded(token) {
+      if (renderDepth >= MAX_INLINE_DEPTH) return degradeToSource(token);
+      renderDepth += 1;
+      try {
+        return rendererFn.call(this, token);
+      } finally {
+        renderDepth -= 1;
+      }
+    };
+    const guardedInline = (token, produce) => {
+      if (renderDepth >= MAX_INLINE_DEPTH) return degradeToSource(token);
+      renderDepth += 1;
+      try {
+        return produce();
+      } finally {
+        renderDepth -= 1;
+      }
+    };
 
     const tuneBlockStyle = (
       style,
@@ -404,7 +480,7 @@ export function createArticleRenderer({ Marked, Renderer }) {
             }
           },
           renderer(token) {
-            return `<mark style="background-color: ${hexToRgba(template.themeColor, 0.5)}; color: inherit; padding: 0 2px;">${this.parser.parseInline(token.tokens)}</mark>`;
+            return guardedInline(token, () => `<mark style="background-color: ${hexToRgba(template.themeColor, 0.5)}; color: inherit; padding: 0 2px;">${this.parser.parseInline(token.tokens)}</mark>`);
           },
         },
         {
@@ -427,7 +503,7 @@ export function createArticleRenderer({ Marked, Renderer }) {
             }
           },
           renderer(token) {
-            return `<sup>${this.parser.parseInline(token.tokens)}</sup>`;
+            return guardedInline(token, () => `<sup>${this.parser.parseInline(token.tokens)}</sup>`);
           },
         },
         {
@@ -451,29 +527,54 @@ export function createArticleRenderer({ Marked, Renderer }) {
             }
           },
           renderer(token) {
-            return `<sub>${this.parser.parseInline(token.tokens)}</sub>`;
+            return guardedInline(token, () => `<sub>${this.parser.parseInline(token.tokens)}</sub>`);
           },
         },
       ],
     });
 
-    const innerHtml = markedInstance.parse(markdownText, {
+    // 给所有会再进 parser 的方法挂上深度护栏（在 marked 取用之前包好）
+    for (const method of GUARDED_RENDERER_METHODS) {
+      if (typeof customRenderer[method] === 'function') {
+        customRenderer[method] = guardRenderer(customRenderer[method]);
+      }
+    }
+
+    const innerHtml = markedInstance.parse(safeMarkdown, {
       renderer: customRenderer,
       breaks: true,
       gfm: true,
     });
 
-    // 文章容器：tweaks 落到容器（字号/行高/字间距/四向留白）+ 底色兜底
-    const articleContainerStyle = ensureStyleValue(
-      ensureStyleValue(
-        `${template.containerStyle} font-size: ${formatTweaks.fontSize}px; line-height: ${formatTweaks.lineHeight}; letter-spacing: ${formatTweaks.letterSpacing}px; color: ${template.baseStyle.color}; font-family: ${template.baseStyle.fontFamily}; word-wrap: break-word; word-break: break-all; box-sizing: border-box;`,
-        'padding',
-        `${formatTweaks.pagePaddingTop}px ${formatTweaks.pagePaddingRight}px ${formatTweaks.pagePaddingBottom}px ${formatTweaks.pagePaddingLeft}px`,
-      ),
-      'background-color',
-      template.backgroundColor,
-    );
+    // dataURL 回填：解析器全程没见过那几百 KB 的 base64，产物与清洗前一致
+    return restore(wrapArticle(template, formatTweaks, innerHtml));
+  }
 
-    return `<section style="width: 100%; max-width: 100%; box-sizing: border-box; background-color: ${template.backgroundColor};"><section style="${articleContainerStyle}">${innerHtml}</section></section>`;
-  };
+  /**
+   * 安全渲染入口：任何异常都不上抛，直接降级为纯文本产物。
+   * @param {string} markdownText
+   * @param {import('./templates.js').TemplateConfig} baseTemplate
+   * @param {import('./engine.js').FormatTweaks} formatTweaks
+   * @returns {{html: string, degraded: boolean, reason: string}}
+   */
+  function renderArticleSafe(markdownText, baseTemplate, formatTweaks) {
+    try {
+      return { html: renderArticle(markdownText, baseTemplate, formatTweaks), degraded: false, reason: '' };
+    } catch (err) {
+      // 拿到的是原生 RangeError（marked 会给它追加 "Please report this to …"，这里剥掉尾巴）
+      const reason = cleanParseError(err);
+      try {
+        return { html: renderPlainTextArticle(markdownText, baseTemplate, formatTweaks), degraded: true, reason };
+      } catch {
+        // 连纯文本容器都构造失败：最后一道兜底，直接输出转义后的原文
+        return {
+          html: `<pre style="margin: 0; white-space: pre-wrap; word-break: break-word;">${escapeHtml(markdownToPlainText(markdownText))}</pre>`,
+          degraded: true,
+          reason,
+        };
+      }
+    }
+  }
+
+  return { renderArticle, renderArticleSafe };
 }

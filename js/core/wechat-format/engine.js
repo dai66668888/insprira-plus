@@ -58,15 +58,17 @@ export const DEFAULT_TWEAKS = {
  *   allTemplates: import('./templates.js').TemplateConfig[],
  *   groupedTemplates: {id: string, name: string, templates: import('./templates.js').TemplateConfig[]}[],
  *   renderArticle: (markdown: string, template: import('./templates.js').TemplateConfig, tweaks: FormatTweaks) => string,
+ *   renderArticleSafe: (markdown: string, template: import('./templates.js').TemplateConfig, tweaks: FormatTweaks) => {html: string, degraded: boolean, reason: string},
  *   DEFAULT_TWEAKS: FormatTweaks,
  * }}
  */
 export function makeEngine(deps) {
-  const renderArticle = createArticleRenderer(deps);
+  const { renderArticle, renderArticleSafe } = createArticleRenderer(deps);
   return {
     allTemplates,
     groupedTemplates,
     renderArticle,
+    renderArticleSafe,
     DEFAULT_TWEAKS,
   };
 }

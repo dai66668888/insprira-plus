@@ -224,7 +224,9 @@ module.exports = { make };
 
 | 测试文件 | 引导 | 覆盖点 |
 |---|---|---|
-| `test/wechat-format-kernel.test.js` | 直接 `await import('../js/core/wechat-format/engine.js')` + `require('marked')` 注入 | ① 模板总数 72、6 分类各 12；② 产物无 `class=`、无 `<style>`、全部样式在 `style="`；③ 标题三层 section 嵌套；④ 列表 float 结构与清浮动；⑤ 同段多图触 发多排布局；⑥ 表格含 `bgcolor`；⑦ tweaks 生效（fontSize 落到容器、imageRadius 落到 img）；⑧ `==高亮==`/`^上^`/`~下~` 扩展；⑨ 代码块实体转义（`<script>` 不出现）；⑩ 6 分类 × 抽样色值快照断言（锁视觉回归基线） |
+| `test/wechat-format-kernel.test.js` | 直接 `await import('../js/core/wechat-format/engine.js')` + `require('marked')` 注入 | ① 模板总数 72、6 分类各 12；② 产物无 `class=`、无 `<style>`、全部样式在 `style="`；③ 标题三层 section 嵌套；④ 列表 float 结构与清浮动；⑤ 同段多图触 发多排布局；⑥ 表格含 `bgcolor`；⑦ tweaks 生效（fontSize 落到容器、imageRadius 落到 img）；⑧ `==高亮==`/`^上^`/`~下~` 扩展；⑨ 代码块实体转义（`<script>` 不出现）；⑩ 6 分类 × 抽样色值快照断言（锁视觉回归基线）；⑪-⑭ 防爆栈护栏回归（定界符风暴与超深引用不再爆栈 / 畸形图片被修好 / dataURL 不进解析器且产物回填 / `renderArticleSafe` 降级纯文本） |
+| `test/markdown-guard.test.js` | 纯函数，无依赖（没装 node_modules 也能跑） | ① dataURL 抽取与回填；② 畸形图片修复；③ 定界符折叠且不动代码；④ 嵌套封顶；⑤ 正常文档逐字节不变；⑥ 纯文本降级；⑦ 剥离 marked 的报错尾巴；⑧ 占位符补括号 |
+| `test/frontend-utils-render.test.js` | `require('../vendor/marked.min.js')` 伪造浏览器全局 | ① 定界符风暴不再爆栈；② dataURL 渲染后回填；③ marked 抛错时降级为转义纯文本；④ 空内容/正常内容行为不变 |
 | `test/mp-format.routes.test.js` | `test/_server.js`（随机端口 + 屏蔽密钥 env） | ① 未配置 MP_APP_ID 时 `sync-draft` 400 且错误文案含引导；② 未登录 401（默认鉴权路径）；③ `ai-layout` 空 markdown 400、>15000 字 400；④ `config` 返回脱敏结构 |
 | 既有回归 | `npm test` 全量 | 确认 `wechat-official.js` 导出重构无行为变化（auth/routes 测试不动） |
 
@@ -265,6 +267,7 @@ module.exports = { make };
 | 风险 | 影响 | 对策 |
 |---|---|---|
 | marked v15 vs v17 渲染行为差异 | 内核产物偏差 | 内核测试先行（§7①-⑩ 锁行为）；差异点做适配垫片；必要时升级 vendor/marked 并回归 `renderMarkdown` 相关测试 |
+| marked 解析期栈溢出（页面报「Maximum call stack size exceeded Please report this to…」） | 预览区「渲染失败」、整页卡死 | **已修**：新增 `js/core/markdown-guard.js` 护栏——① dataURL 图片抽成短占位符、渲染后回填，几百 KB 的 base64 不进解析器；② 修畸形图片标签（未闭合补 `)`、alt 转义与截断、占位符补括号）；③ 超长定界符串（`******`/`====` 装饰线、被截断图片漏回正文的 URL）在非代码区转义为字面量；④ 引用/列表嵌套封顶；⑤ 渲染器递归深度封顶（超过 `MAX_INLINE_DEPTH` 输出 `token.raw` 纯文本）；⑥ `engine.renderArticleSafe` 解析异常降级纯文本并给出提示。回归见 `test/markdown-guard.test.js`、内核测试 ⑪-⑭、`test/frontend-utils-render.test.js` |
 | 微信对上传图 >1MB 拒绝（无 sharp） | 同步失败 | 明确报错引导压缩；v2 可选服务端 sharp 或前端 Canvas 逐图压缩 |
 | 外链图片下载失败（防盗链/超时） | 部分图未转存 | 预览侧已有 `proxyImage`；同步侧失败跳过并逐图提示，最终草稿仍可落箱 |
 | 上游 AGPL 附加商用条款 | 商业化受限 | 本期非商用合规 + 署名齐全；商业化前替换实现或取得书面授权（记录在 THIRD_PARTY_NOTICES） |
