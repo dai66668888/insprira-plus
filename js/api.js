@@ -13,6 +13,12 @@ export function cancelAllApi() {
   controllers.clear();
 }
 
+// 区分「用户取消 / 切页中断」与真实失败：abortKey 或外部 signal 触发时 fetch 抛 AbortError。
+// 页面据此提示「已取消」而不是把中断当异常报错，也不覆盖已有结果。
+export function isAbortError(error) {
+  return Boolean(error) && error.name === 'AbortError';
+}
+
 export function setUnauthorizedHandler(handler) {
   unauthorizedHandler = handler;
 }
@@ -138,8 +144,10 @@ export async function localApi(path, options = {}) {
   if (payload.snapshotDate !== undefined) data.snapshotDate = payload.snapshotDate;
   if (payload.capturedAt !== undefined) data.capturedAt = payload.capturedAt;
   if (payload.syncedAt !== undefined) data.syncedAt = payload.syncedAt;
+  // 注意：需要透传给前端的**顶层**字段必须列在这里，否则只返回 payload.data 会被丢掉。
+  // deduplicated 是服务端 single-flight 的命中标记（lib/single-flight.js）。
   ['sourceMode', 'sourceLabel', 'dataDate', 'expectedDate', 'latestAttempt', 'analyzed',
-    'cronEnabled', 'cronExpr', 'lastRun'].forEach(key => {
+    'cronEnabled', 'cronExpr', 'lastRun', 'deduplicated'].forEach(key => {
     if (payload[key] !== undefined) data[key] = payload[key];
   });
   return data;

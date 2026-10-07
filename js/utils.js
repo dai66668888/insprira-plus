@@ -41,6 +41,16 @@ export const safeExternalUrl = value => {
   }
 };
 
+// ============= 耗时文案 =============
+// 长任务（LLM 生成）等待期的计时显示：60 秒以内显示「N 秒」，超过则「M 分 SS 秒」。
+// 非法输入（NaN / 负数 / 非数字）一律兜底成「0 秒」，避免等待期出现「NaN 秒」这种字样。
+export function formatElapsed(ms) {
+  const value = Number(ms);
+  const seconds = Number.isFinite(value) && value > 0 ? Math.floor(value / 1000) : 0;
+  if (seconds < 60) return `${seconds} 秒`;
+  return `${Math.floor(seconds / 60)} 分 ${String(seconds % 60).padStart(2, '0')} 秒`;
+}
+
 // ============= Markdown 渲染 =============
 // 喂给 marked 之前先过一遍解析护栏（js/core/markdown-guard.js）：畸形图片标签、超长定界符串、
 // 超深引用嵌套都会让 marked 递归爆栈（页面报「…Maximum call stack size exceeded Please report this

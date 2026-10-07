@@ -1,6 +1,8 @@
-import { esc, fmt } from './utils.js';
+import { esc, fmt, formatElapsed } from './utils.js';
 import { platColor, platName } from './config.js';
 import { initIcons } from './icons.js';
+// 取消长任务：abortKey 与 js/api.js 的控制器 Map 对应，切页时由 cancelAllApi 统一中断
+import { cancelApi } from './api.js';
 
 // ============= Toast =============
 export function toast(msg, type = 'info') {
@@ -19,6 +21,63 @@ export function toast(msg, type = 'info') {
 // ============= Skeleton =============
 export function skeleton(n = 5) {
   return Array(n).fill('').map(() => '<div class="skeleton h-10 w-full"></div>').join('');
+}
+
+// ============= 长任务等待态 =============
+// 统一的「生成中」指示：状态点 + 阶段文案（可选）+ 实时计时 + 取消按钮。
+// 用途：LLM 长任务（AI 创作 / 选题生成 / AI 排版）—— 替代「写死的占位文案」这种假进度，
+// 并让用户能主动中断：取消 = cancelApi(abortKey) 中断 fetch；切页时由 cancelAllApi 统一中断。
+// 注意：样式全部走内联 + 已有 class（btn / btn-ghost），不引入新的 Tailwind class，避免必须重跑 build。
+export function busyState(host, { label = '', abortKey = '', before = null, onCancel = null } = {}) {
+  if (!host) return { el: null, setStage() {}, stop() {} };
+  const el = document.createElement('div');
+  el.className = 'busy-state';
+  el.setAttribute('role', 'status');
+  el.style.cssText = 'display:flex;align-items:center;gap:8px;margin:6px 0;font-size:12px;color:#9ca3af';
+  const dot = document.createElement('span');
+  dot.style.cssText = 'width:6px;height:6px;border-radius:9999px;background:#22d3ee;flex-shrink:0';
+  const text = document.createElement('span');
+  text.textContent = label;
+  if (!label) text.style.display = 'none';
+  const elapsed = document.createElement('span');
+  elapsed.style.cssText = 'font-variant-numeric:tabular-nums';
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'btn btn-ghost py-0.5 px-1.5 text-[11px]';
+  cancel.textContent = '取消';
+  el.append(dot, text, elapsed, cancel);
+  if (before && before.parentElement === host) host.insertBefore(el, before);
+  else host.appendChild(el);
+
+  const startedAt = Date.now();
+  const tick = () => { elapsed.textContent = formatElapsed(Date.now() - startedAt); };
+  tick();
+  const timer = setInterval(tick, 1000);
+  let stopped = false;
+
+  cancel.addEventListener('click', () => {
+    if (stopped) return;
+    // 取消是「止损」不是「退款」：中断的是浏览器侧等待，服务端已发出的那次调用仍会跑完
+    cancel.disabled = true;
+    cancel.textContent = '正在取消…';
+    if (abortKey) cancelApi(abortKey);
+    if (onCancel) { try { onCancel(); } catch { /* 回调异常不影响取消流程 */ } }
+  });
+
+  return {
+    el,
+    setStage(value) {
+      if (!value) return;
+      text.textContent = String(value);
+      text.style.display = '';
+    },
+    stop() {
+      if (stopped) return;
+      stopped = true;
+      clearInterval(timer);
+      el.remove();
+    },
+  };
 }
 
 // ============= Rank Badge =============

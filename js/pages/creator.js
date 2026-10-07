@@ -1,8 +1,8 @@
-import { api, localApi } from '../api.js';
+import { api, localApi, isAbortError } from '../api.js';
 import { LS } from '../state.js';
 import { esc, safeExternalUrl, proxyImage } from '../utils.js';
 import { platName } from '../config.js';
-import { toast } from '../components.js';
+import { busyState, toast } from '../components.js';
 import { gotoPage } from '../navigation.js';
 import { initIcons } from '../icons.js';
 
@@ -288,6 +288,7 @@ export function clearSelectedHotspot() {
 }
 
 let rewriteInFlight = false;
+let rewriteBusy = null;
 
 export async function doRewrite() {
   const text = document.getElementById('creatorInput').value.trim();
@@ -298,11 +299,17 @@ export async function doRewrite() {
   const btn = document.getElementById('doRewriteBtn');
   rewriteInFlight = true;
   if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
-  document.getElementById('rewriteTitle').value = '正在生成标题…';
-  document.getElementById('rewriteIntro').value = '正在生成前言…';
-  resultEl.value = '正在调用 LLM 重构内容…';
+  // 等待态：状态点 + 阶段文案 + 实时计时 + 取消。
+  // 不再把「正在生成标题…/正在调用 LLM…」写进三个输出框 —— 那是假进度（真实阶段不可知），
+  // 而且一旦失败/取消，占位文案已经把上一版可用成稿顶掉、无法恢复。
+  rewriteBusy = busyState(resultEl?.parentElement || null, {
+    label: '正在重构内容…',
+    abortKey: 'creator-rewrite',
+    before: resultEl,
+  });
   try {
     const styleProfile = await getSelectedStyleProfile();
+    rewriteBusy?.setStage('正在调用 LLM 重构内容…');
     const result = await localApi('rewrite', {
       method: 'POST',
       body: {
@@ -313,18 +320,20 @@ export async function doRewrite() {
         styleProfile,
         mode: currentCreatorMode,
       },
+      abortKey: 'creator-rewrite', // 取消按钮与切页（cancelAllApi）都能中断等待
     });
     document.getElementById('rewriteTitle').value = result.title || '';
     document.getElementById('rewriteIntro').value = result.intro || '';
     resultEl.value = result.content;
     toast(`已使用 ${result.model} 完成重构${result.hotspot?.title ? '，标题和前言已结合热点' : ''}`, 'success');
   } catch (e) {
-    document.getElementById('rewriteTitle').value = '';
-    document.getElementById('rewriteIntro').value = '';
-    resultEl.value = '';
-    toast(e.message, 'error');
+    // 失败/取消一律保留上一版成稿：输出框只在成功时被新内容覆盖
+    if (isAbortError(e)) toast('已取消生成，上一版成稿已保留', 'info');
+    else toast(e.message, 'error');
   } finally {
     rewriteInFlight = false;
+    rewriteBusy?.stop();
+    rewriteBusy = null;
     if (btn) { btn.disabled = false; btn.style.opacity = ''; }
   }
 }

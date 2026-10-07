@@ -4,9 +4,9 @@
 // 工具栏操作移植上游 app/_hooks/use-markdown-tools.ts 子集；PR-1 范围：编辑/预览/模板/微调/复制/偏好持久化。
 import { LS } from '../state.js';
 import { esc, proxyImage } from '../utils.js';
-import { toast, Modal } from '../components.js';
+import { busyState, toast, Modal } from '../components.js';
 import { initIcons } from '../icons.js';
-import { localApi } from '../api.js';
+import { localApi, isAbortError } from '../api.js';
 import { makeEngine, DEFAULT_TWEAKS } from '../core/wechat-format/engine.js';
 import { markdownToPlainText, repairPlaceholderImageSyntax } from '../core/markdown-guard.js';
 
@@ -421,6 +421,9 @@ export async function formatAiLayout() {
     initIcons(btn);
   };
   setBtnLoading(true);
+  // 等待态：按钮已有 spinner，这里再补「实时计时 + 取消」——AI 排版可能跑几十秒，
+  // 用户需要知道还要等多久，并能主动中断（取消/切页都能中断等待）
+  const busy = busyState(editor.parentElement, { label: '正在排版…', abortKey: 'format-ai', before: editor });
   try {
     // localApi 会解包 { ok, data }，成功拿到 { markdown }；失败抛 Error(error)
     const data = await localApi('mp-format/ai-layout', {
@@ -436,8 +439,10 @@ export async function formatAiLayout() {
     doRender();
     toast('AI 排版完成，已替换编辑器内容（可 Ctrl+Z 撤销）', 'success');
   } catch (e) {
-    if (e.name !== 'AbortError') toast('AI 排版失败：' + (e.message || e), 'error');
+    if (isAbortError(e)) toast('已取消 AI 排版，编辑器内容未改动', 'info');
+    else toast('AI 排版失败：' + (e.message || e), 'error');
   } finally {
+    busy.stop();
     setBtnLoading(false);
   }
 }

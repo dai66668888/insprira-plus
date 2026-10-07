@@ -1,8 +1,8 @@
-import { localApi } from '../api.js';
+import { localApi, isAbortError } from '../api.js';
 import { LS } from '../state.js';
 import { esc, fmt, safeExternalUrl } from '../utils.js';
 import { platName } from '../config.js';
-import { skeleton, toast } from '../components.js';
+import { busyState, skeleton, toast } from '../components.js';
 import { initIcons } from '../icons.js';
 import { renderInspirationConfigs, loadInspirationSources } from './settings.js';
 import { gotoPage } from '../navigation.js';
@@ -364,21 +364,35 @@ export async function feedbackInspiration(id, type) {
   } catch (e) { toast(e.message, 'error'); }
 }
 
+let inspirationInFlight = false;
+let inspirationBusy = null;
+
 export async function generateInspirations() {
   closeInspirationSourceDropdown();
   const domain = document.getElementById('inspirationDomain').value.trim();
   const keywords = document.getElementById('inspirationKeywords').value.split(/[,，、\n]/).map(x => x.trim()).filter(Boolean);
   const sources = [...document.querySelectorAll('#inspiration-sources input[type="checkbox"]:checked')].map(b => b.value);
-  document.getElementById('inspiration-status').textContent = '正在生成选题…';
+  // 防重入：灵感页是整条链路的起点，连点会同时烧 RedFox API 预算与 LLM
+  //（服务端另有「同请求 5s 去重」兜底，见 lib/routes/inspiration.js）
+  if (inspirationInFlight) { toast('正在生成中，请等待当前任务完成', 'info'); return; }
+  const status = document.getElementById('inspiration-status');
+  const sourceLabels = {
+    api: 'API',
+    database: '本地缓存',
+    'skipped-budget': '预算跳过',
+    'api-failed': 'API 失败',
+  };
+  inspirationInFlight = true;
+  if (status) status.textContent = '正在生成选题…';
+  // 等待态：状态行保留「正在生成选题…」，旁边补实时计时 + 取消（取消/切页都能中断等待）
+  inspirationBusy = busyState(status?.parentElement || null, { abortKey: 'inspiration-generate', before: status });
   try {
-    const result = await localApi('inspirations/generate', { method: 'POST', body: { domain, keywords, count: 6, sources } });
+    const result = await localApi('inspirations/generate', {
+      method: 'POST',
+      body: { domain, keywords, count: 6, sources },
+      abortKey: 'inspiration-generate',
+    });
     const searches = result.research?.searches || [];
-    const sourceLabels = {
-      api: 'API',
-      database: '本地缓存',
-      'skipped-budget': '预算跳过',
-      'api-failed': 'API 失败',
-    };
     const ranges = searches.map(item => {
       const mode = item.mode === 'deep' ? '深度' : '组合';
       const keywords = (item.keywords || [item.keyword]).join('、');
@@ -397,10 +411,30 @@ export async function generateInspirations() {
     const engine = document.getElementById('inspiration-engine');
     if (engine) engine.textContent = `来源：${selectedSourceLabels}；${basis}，由 ${result.generatedBy} 生成。${cost}${ranges ? `；${ranges}` : ''}${duplicates}`;
     toast(`已生成 ${result.ideas.length} 个选题`, 'success');
+    // 服务端 single-flight 命中：说明这次是复用了另一处（双开标签页/另一路径）正在跑的生成，没有重复烧预算
+    if (result.deduplicated) toast('已复用本次进行中的生成结果（未重复调用）', 'info');
     await renderInspiration();
   } catch (e) {
-    toast(e.message, 'error');
-    document.getElementById('inspiration-status').textContent = '生成失败';
+    // 失败必须分型：取消 / 预算跳过 / 数据抓取失败 / 其它。
+    // 此前一律显示「生成失败」，用户无法判断该「等一会重试」还是「去设置页补 key」。
+    const message = String(e?.message || e || '生成失败');
+    if (isAbortError(e)) {
+      if (status) status.textContent = '已取消生成';
+      toast('已取消生成，上次结果已保留', 'info');
+    } else if (/预算|额度|budget/i.test(message)) {
+      if (status) status.textContent = `本次跳过：${message}`;
+      toast(message, 'info');
+    } else if (/api|redfox|限流|429|超时|timeout/i.test(message)) {
+      if (status) status.textContent = `数据抓取失败：${message}`;
+      toast(message, 'error');
+    } else {
+      if (status) status.textContent = `生成失败：${message}`;
+      toast(message, 'error');
+    }
+  } finally {
+    inspirationInFlight = false;
+    inspirationBusy?.stop();
+    inspirationBusy = null;
   }
 }
 

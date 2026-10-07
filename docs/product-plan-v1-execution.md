@@ -53,6 +53,7 @@
 | 定向测试 | `node --test test/<file>.test.js` | 改哪个模块跑哪个 |
 
 **本工作树的已知限制（如实记录）**：`node_modules` 未安装（`better-sqlite3` 缺失），且沙箱禁止 npm 默认缓存写入与 `node --test` 的 spawn 管道 → 依赖 `test/_helper.js` / `test/_server.js` 的用例（需要 DB 与监听端口）**只能在装了依赖的环境跑**；不依赖 DB 的用例（如 `test/markdown-guard.test.js`、`test/frontend-utils-render.test.js`）可用 `node test/<file>.test.js` 直接跑。
+`test/wechat-format-kernel.test.js` 走 npm `marked`（无 `node_modules` 时报 `MODULE_NOT_FOUND`），可临时用 `NODE_PATH` 指向「导出 `Marked`/`Renderer` 的 vendor/marked.min.js 同版本 shim」离线运行（本环境已验证 **15/15**）；`test/security-hardening.test.js` 会 `spawn` 子进程，在本沙箱下必然 EPERM —— 属沙箱边界，不是用例失败。
 
 ### 0.4 每个任务的标准作业流程（SOP）
 
@@ -96,7 +97,7 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 
 ## 2. P0 任务卡
 
-### P0-1 统一等待态 + 可取消 + 失败不清稿　`[ ]`　工作量 M
+### P0-1 统一等待态 + 可取消 + 失败不清稿　`[x]` 代码完成（A1/A3/A4 待人工验收）　工作量 M
 
 **目标**：消灭「假进度」（写死文案）、「失败即清稿」、「切页不中断」三类体验缺陷，一次修好四个长任务页面。
 
@@ -113,14 +114,14 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 
 **实施步骤**
 
-- [ ] 1. `js/components.js` 加 `busyState`（含 `formatElapsed(ms)` 计时文案）
-- [ ] 2. 把 `formatElapsed` 抽到 `js/utils.js` 纯函数并补测试（`test/utils.test.js` 现有 16 例基础上加 2-3 例：`0s` / `1分05秒` / 负数兜底）
-- [ ] 3. `js/api.js` 导出 `isAbortError`
-- [ ] 4. `js/pages/creator.js`：`abortKey` + `busyState` + 失败保留 + 取消语义
-- [ ] 5. `js/pages/inspiration.js`：同上（失败保留 + 等待态）
-- [ ] 6. `js/pages/format.js`：复用 `busyState`
-- [ ] 7. 跑 `node test/utils.test.js`；改过 Tailwind class 则 `npm run build`
-- [ ] 8. 人工验收 A1 / A3 / A4，结论写入 §7
+- [x] 1. `js/components.js` 加 `busyState`（状态点 + 阶段文案 + 实时计时 + 取消；内联样式 + 复用已编译 class）
+- [x] 2. `formatElapsed` 抽到 `js/utils.js` 纯函数并补测试：新增 `test/frontend-utils.test.js`（3 例，见 §8.1-4）
+- [x] 3. `js/api.js` 导出 `isAbortError`（取消 ≠ 失败）
+- [x] 4. `js/pages/creator.js`：`abortKey:'creator-rewrite'` + `busyState` + 失败保留上一版 + 取消提示
+- [x] 5. `js/pages/inspiration.js`：等待态 + `abortKey` + 失败分型（与 P0-2 的防重入在同一函数内一次改完）
+- [x] 6. `js/pages/format.js`：复用 `busyState`，取消文案与失败文案区分
+- [x] 7. 门禁：`node test/frontend-utils.test.js` 3/3、6 个改动文件 ESM 语法检查通过；未新增 Tailwind class → 无需 `npm run build`
+- [ ] 8. 人工验收 A1 / A3 / A4（需浏览器 + 已装依赖环境；本环境无浏览器 provider、无 `node_modules`），结论待写入 §7
 
 **验收**（编号见产品文档 §5-A）
 
@@ -136,7 +137,7 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 
 ---
 
-### P0-2 灵感页防重入 + single-flight + 失败分型　`[ ]`　工作量 S
+### P0-2 灵感页防重入 + single-flight + 失败分型　`[x]` 代码完成（B1-B3 待人工验收）　工作量 S
 
 **目标**：链路起点不再重复烧 RedFox 预算与 LLM；「预算跳过」与「API 挂了」不再显示成同一句「生成失败」。
 
@@ -151,11 +152,11 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 
 **实施步骤**
 
-- [ ] 1. 后端：`lib/routes/inspiration.js` 加去重 Map 与命中分支
-- [ ] 2. 前端：`js/api.js` 白名单加 `deduplicated`；`js/pages/inspiration.js` 加 in-flight + 按钮禁用 + 分型文案
-- [ ] 3. 新增 `test/inspiration.routes.test.js`（2 例：去重命中 / 不同 body 不命中）
-- [ ] 4. 人工验收 B2（三种文案）、B1（连点 3 次只 1 行 `action_logs`）
-- [ ] 5. 跑 `npm run check`；有 DB 的环境跑 `node --test test/inspiration.routes.test.js`
+- [x] 1. 后端：抽出 `lib/single-flight.js`（可单测），`lib/routes/inspiration.js` 接上；`action_logs` 只在「真的跑了一次」时写
+- [x] 2. 前端：`js/api.js` 白名单加 `deduplicated`；`js/pages/inspiration.js` 加 in-flight 标志 + 取消 + 失败分型 + 复用提示
+- [x] 3. 新增 `test/single-flight.test.js`（6 例，纯函数、本环境可跑），见 §8.1-5
+- [ ] 4. 人工验收 B2（三种文案）、B1（连点 3 次只 1 行 `action_logs`）—— 需 DB + LLM 环境
+- [x] 5. `node --check lib/single-flight.js lib/routes/inspiration.js` 通过；`node test/single-flight.test.js` 6/6
 
 **验收**（§5-B）
 
@@ -343,7 +344,8 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 
 | 文件 | 涉及任务 | 改动性质 |
 |---|---|---|
-| `lib/routes/inspiration.js` | P0-2 | single-flight 去重 |
+| `lib/single-flight.js`（**新增**） | P0-2 | 可单测的同请求去重模块（`createSingleFlight` / `requestKey`） |
+| `lib/routes/inspiration.js` | P0-2 | 接 single-flight；审计只在「真的跑了一次」时记录 |
 | `lib/routes/hot.js` | P0-3 | 透传 `days`/`force` |
 | `lib/hot.js` | P0-3 | 窗口参数、幂等沿用缓存判据、`batchStats` 透出 |
 | `lib/routes/mp-format.js` | P0-4、P0-5 | 草稿 GET/PUT；`ai-layout` 审计 |
@@ -355,8 +357,8 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 
 | 文件 | 任务 | 用例要点 |
 |---|---|---|
-| `test/utils.test.js`（扩展） | P0-1 | `formatElapsed` 边界 |
-| `test/inspiration.routes.test.js`（新增） | P0-2 | 去重命中 / 不同 body 不命中 |
+| `test/frontend-utils.test.js`（**新增**） | P0-1 | `formatElapsed` 边界 + `isAbortError`（前端纯函数；`test/utils.test.js` 属后端 `lib/utils.js`，不要混用） |
+| `test/single-flight.test.js`（**新增**） | P0-2 | 去重机制 6 例：并发复用 / 不同 key / 结束后释放 / 窗口过期 / 失败传播且可重试 / 键归一化 |
 | `test/hot-trends.test.js`（新增） | P0-3 | 幂等不重跑 LLM / 窗口 7 vs 14 / `batchStats` 透出 |
 | `test/mp-format.routes.test.js`（扩展） | P0-4 | 草稿 PUT→GET 一致 / 超长 400 / 未登录 401 |
 | env 校验用例（`test/security-hardening.test.js` 或新增） | P0-5 | 非法数值 400 且不写文件 |
@@ -425,8 +427,8 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 
 | 任务 | 状态 | 提交 | 验收编号 | 验收结论 | 备注 |
 |---|---|---|---|---|---|
-| P0-1 统一等待态 | `[ ]` | — | A1-A4 | — | 起点，Batch 1 |
-| P0-2 灵感防重入 | `[ ]` | — | B1-B3 | — | 依赖 Batch 1 |
+| P0-1 统一等待态 | `[x]` 代码完成，A1/A3/A4 待人工验收 | 本轮工作树 | A1-A4 | 代码级：`test/frontend-utils.test.js` 3/3 + 6 个改动文件 ESM 语法门禁通过；UI 路径未执行（无浏览器 provider / 无 `node_modules`） | 起点，Batch 1 |
+| P0-2 灵感防重入 | `[x]` 代码完成，B1/B2/B3 待人工验收 | 本轮工作树 | B1-B3 | 机制级：`test/single-flight.test.js` 6/6；`node --check` 通过；路由级用例需 DB+LLM 环境 | 依赖 Batch 1；`/rewrite` 既有内联去重未统一（§8.1-5） |
 | P0-3 趋势卡可信化 | `[ ]` | — | C1-C4 | — | 独立 |
 | P0-4 排版闭环 | `[ ]` | — | D1-D4 | — | 不依赖 MP 凭证 |
 | P0-5 用量与杠杆 | `[ ]` | — | E1-E5 | — | 可与 2-4 并行 |
@@ -435,6 +437,9 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 | P1-3 草稿箱同步 | `[ ]` | — | H1-H3 | — | 依赖凭证 + P0-4 |
 | P1-4 数据可信度 | `[ ]` | — | I1-I3 | — | 独立 |
 | P1-5 行动项关联 | `[ ]` | — | J1-J3 | — | 依赖 P1-4 |
+
+**测试基线变更（Batch 1-2）**：新增 `test/frontend-utils.test.js` 3 例 + `test/single-flight.test.js` 6 例 → 全仓库静态计数 **167 → 176**（各 `test/*.test.js` 的 `^test(` 之和）。
+**本环境可运行验证**：44 例全绿 —— `frontend-utils` 3、`frontend-utils-render` 4、`llm-stream` 8、`markdown-guard` 8、`single-flight` 6、`wechat-format-kernel` 15（用 vendor 同版本 marked 经 `NODE_PATH` shim 离线复跑）。
 
 ---
 
@@ -449,3 +454,11 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 | 3 | P0-5「设置页补当日 requests/calls/cache_hits/errors」 | `usageSummary()`（`lib/observability.js:37-43`）**已提供**这 4 个数字，`GET /api/_/quota` 也已返回；但设置页只渲染了 `today.calls`/`month.calls`（`js/pages/settings.js:493-494`） | 改为**只补渲染**（不补接口）；真正需要新增的是「LLM 并发/排队 + 今日 LLM 调用」（接 `GET /api/_/stats` 的 `llm` 块），以及把 10 个稳定性/预算键加进 `EDITABLE_ENV_KEYS` + 数值校验 |
 
 > 补充：`/api/_/env` 的 GET/PUT 落在 `lib/routes/auth.js:164-172`（不是 `misc.js`），`updateEnvConfig` 会跳过空值（`lib/env.js:63`）——所以「设为 0」必须传字符串 `'0'`，且**无法通过设置页清空**某个键，这是既有语义，任务卡已按此设计。
+
+### 8.1 实施期新增的落地偏差（Batch 1-2 实际执行记录）
+
+| # | 计划写法 | 实际发现 | 最终做法 |
+|---|---|---|---|
+| 4 | P0-1 步骤 2：把 `formatElapsed` 的测试加到 `test/utils.test.js` | `test/utils.test.js` 走 `./_helper`（require server.js → better-sqlite3），是**后端** `lib/utils.js` 的测试；前端纯函数塞进去会平白拖上 DB 依赖 | 另建 `test/frontend-utils.test.js`（3 例，无 DB 即可跑） |
+| 5 | P0-2 步骤 3：新增 `test/inspiration.routes.test.js` 验证去重 | 路由级用例需 DB，且 `test/_server.js` 会屏蔽 LLM/RedFox 密钥 → `/inspirations/generate` 在无 LLM 时必然失败，「去重命中」无法观察 | 抽出 `lib/single-flight.js` **纯模块**并单测 6 例（可跑、可复用）；`/rewrite` 的既有内联去重**保持不动**以降风险，两处语义统一留作后续 |
+| 6 | P0-1 步骤 7：「改过 Tailwind class 则 `npm run build`」 | 新增等待态若用新 class 就必须重建 CSS 产物 | 只用**内联样式 + index.html 已出现的 class**（`btn btn-ghost py-0.5 px-1.5 text-[11px]`），本轮**无需** `npm run build` |
