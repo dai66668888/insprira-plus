@@ -282,7 +282,7 @@ registerAction('syncHotKeywords', () => syncHotKeywords());
 registerAction('syncHotTab', (_, d) => syncHotTab(d.tab));
 registerAction('toggleHotPlatformCron', (_, d) => toggleHotPlatformCron(d.cronId, d.enabled === 'true', d.tab));
 registerAction('closeHotTab', (_, d) => closeHotTab(d.cronId, d.tab));
-registerAction('analyzeTrends', () => analyzeTrends());
+registerAction('analyzeTrends', (el, d) => analyzeTrends(d));
 registerAction('restoreInspiration', (_, d) => restoreInspiration(d.id));
 registerAction('permanentlyDeleteInspiration', (_, d) => permanentlyDeleteInspiration(d.id));
 registerAction('toggleInspirationFavorite', (_, d) => toggleInspirationFavorite(d.id, d.favorite === 'true'));

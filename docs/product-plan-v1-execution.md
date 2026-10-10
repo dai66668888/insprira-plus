@@ -168,7 +168,7 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 
 ---
 
-### P0-3 趋势卡可信化：窗口生效 + 重分析幂等 + 批次完整度上屏　`[ ]`　工作量 M
+### P0-3 趋势卡可信化：窗口生效 + 重分析幂等 + 批次完整度上屏　`[x]` 代码完成（C1-C3 待依赖环境实测）　工作量 M
 
 **目标**：让「7 天 / 14 天」真的生效、连点「重新分析」不再重复烧 4 批 LLM、批次缺失可见。
 
@@ -186,11 +186,11 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 
 **实施步骤**
 
-- [ ] 1. 后端：`lib/hot.js` 的 `analyzeDailyHotKeywords` / `analyzeHotTrendsLlm` / `getHotTrends` 三处改造
-- [ ] 2. 路由：`lib/routes/hot.js` 透传 `days` 与 `force`
-- [ ] 3. 前端：`js/pages/hotlist.js` 元信息条 + 重新分析二次确认
-- [ ] 4. 新增 `test/hot-trends.test.js`（3 例）
-- [ ] 5. 验收 C1/C2/C3/C4；有依赖环境跑 `node --test test/hot-trends.test.js test/routes.test.js`
+- [x] 1. 后端：`analyzeDailyHotKeywords(dataDate, force, windowDays)`（候选取 `candidateAnalysisDates(windowDays)`）、`analyzeHotTrendsLlm(days = 14, { force = false })`、`getHotTrends(days)` 补 `analyzedDays` + `batchStats`，三处共用 `lib/utils.js` 的 `normalizeTrendDays`
+- [x] 2. 路由：`lib/routes/hot.js` 校验 `days ∈ {7,14}`、读 body 的 `force`（空 body/非 JSON 容错）；`GET /trends` 换用同一套归一化
+- [x] 3. 前端：`js/pages/hotlist.js` 元信息条（实际窗口/数据截至/生成时间/批次完整度）+「重新分析」带 `data-force` 二次确认 + 防重入 + 复用 P0-1 的 `busyState`（计时/取消）；`js/app.js` 把 `dataset` 传给 `analyzeTrends`
+- [x] 4. 新增 `test/hot-window.test.js`（3 例，纯函数、本环境可跑）与 `test/hot-trends.test.js`（3 例 DB 用例，需依赖环境）
+- [ ] 5. 验收 C1/C2/C3/C4：C1 的窗口归一化已测（`hot-window` 3/3）；C1-C3 的落库口径需在依赖环境跑 `node --test test/hot-trends.test.js test/routes.test.js`；C4 需人工验收
 
 **验收**（§5-C）
 
@@ -346,7 +346,8 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 |---|---|---|
 | `lib/single-flight.js`（**新增**） | P0-2 | 可单测的同请求去重模块（`createSingleFlight` / `requestKey`） |
 | `lib/routes/inspiration.js` | P0-2 | 接 single-flight；审计只在「真的跑了一次」时记录 |
-| `lib/routes/hot.js` | P0-3 | 透传 `days`/`force` |
+| `lib/utils.js` | P0-3 | 新增纯函数 `normalizeTrendDays`（路由入参与 `getHotTrends` 共用一套窗口归一化） |
+| `lib/routes/hot.js` | P0-3 | 校验 `days`（只认 7/14）并读 body 的 `force` |
 | `lib/hot.js` | P0-3 | 窗口参数、幂等沿用缓存判据、`batchStats` 透出 |
 | `lib/routes/mp-format.js` | P0-4、P0-5 | 草稿 GET/PUT；`ai-layout` 审计 |
 | `lib/routes/misc.js` | P0-5 | `/rewrite` 审计 |
@@ -359,7 +360,8 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 |---|---|---|
 | `test/frontend-utils.test.js`（**新增**） | P0-1 | `formatElapsed` 边界 + `isAbortError`（前端纯函数；`test/utils.test.js` 属后端 `lib/utils.js`，不要混用） |
 | `test/single-flight.test.js`（**新增**） | P0-2 | 去重机制 6 例：并发复用 / 不同 key / 结束后释放 / 窗口过期 / 失败传播且可重试 / 键归一化 |
-| `test/hot-trends.test.js`（新增） | P0-3 | 幂等不重跑 LLM / 窗口 7 vs 14 / `batchStats` 透出 |
+| `test/hot-window.test.js`（**新增**） | P0-3 | `normalizeTrendDays` 3 例：只认 7 / 非法值兜底 14 / 返回值域（纯函数，本环境可跑） |
+| `test/hot-trends.test.js`（**新增**） | P0-3 | DB 用例 3 例：同指纹二次分析不再触达 LLM / `windowDays` 回溯深度与 `getHotTrends` 窗口 / `batchStats` 与库中 `json_extract` 一致 |
 | `test/mp-format.routes.test.js`（扩展） | P0-4 | 草稿 PUT→GET 一致 / 超长 400 / 未登录 401 |
 | env 校验用例（`test/security-hardening.test.js` 或新增） | P0-5 | 非法数值 400 且不写文件 |
 
@@ -429,7 +431,7 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 |---|---|---|---|---|---|
 | P0-1 统一等待态 | `[x]` 代码完成，A1/A3/A4 待人工验收 | 本轮工作树 | A1-A4 | 代码级：`test/frontend-utils.test.js` 3/3 + 6 个改动文件 ESM 语法门禁通过；UI 路径未执行（无浏览器 provider / 无 `node_modules`） | 起点，Batch 1 |
 | P0-2 灵感防重入 | `[x]` 代码完成，B1/B2/B3 待人工验收 | 本轮工作树 | B1-B3 | 机制级：`test/single-flight.test.js` 6/6；`node --check` 通过；路由级用例需 DB+LLM 环境 | 依赖 Batch 1；`/rewrite` 既有内联去重未统一（§8.1-5） |
-| P0-3 趋势卡可信化 | `[ ]` | — | C1-C4 | — | 独立 |
+| P0-3 趋势卡可信化 | `[x]` 代码完成，C1-C3 待依赖环境实测 | 本轮工作树 | C1-C4 | 纯函数级：`test/hot-window.test.js` 3/3 + 7 个改动文件语法门禁通过；C1-C3 的落库口径已写成 `test/hot-trends.test.js`（3 例）但需 `better-sqlite3` 环境执行；C4 需人工验收 | LLM 走桩注入以免依赖密钥（§8.1-7）；窗口归一化抽成纯函数（§8.1-8） |
 | P0-4 排版闭环 | `[ ]` | — | D1-D4 | — | 不依赖 MP 凭证 |
 | P0-5 用量与杠杆 | `[ ]` | — | E1-E5 | — | 可与 2-4 并行 |
 | P1-1 SSE 流式 | `[ ]` | — | F1-F4 | — | 依赖 Batch 1 |
@@ -438,8 +440,9 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 | P1-4 数据可信度 | `[ ]` | — | I1-I3 | — | 独立 |
 | P1-5 行动项关联 | `[ ]` | — | J1-J3 | — | 依赖 P1-4 |
 
-**测试基线变更（Batch 1-2）**：新增 `test/frontend-utils.test.js` 3 例 + `test/single-flight.test.js` 6 例 → 全仓库静态计数 **167 → 176**（各 `test/*.test.js` 的 `^test(` 之和）。
-**本环境可运行验证**：44 例全绿 —— `frontend-utils` 3、`frontend-utils-render` 4、`llm-stream` 8、`markdown-guard` 8、`single-flight` 6、`wechat-format-kernel` 15（用 vendor 同版本 marked 经 `NODE_PATH` shim 离线复跑）。
+**测试基线变更（Batch 1-3）**：+ `test/frontend-utils.test.js` 3、`test/single-flight.test.js` 6、`test/hot-window.test.js` 3、`test/hot-trends.test.js` 3 → 全仓库静态计数 **167 → 182**（各 `test/*.test.js` 的 `^test(` 之和）。
+**本环境可运行验证**：47 例全绿 —— `frontend-utils` 3、`frontend-utils-render` 4、`llm-stream` 8、`markdown-guard` 8、`single-flight` 6、`hot-window` 3、`wechat-format-kernel` 15（用 vendor 同版本 marked 经 `NODE_PATH` shim 离线复跑）。
+**依赖环境待跑**：`test/hot-trends.test.js` 与另外 14 个走 `test/_helper.js`/`test/_server.js` 的文件（本 worktree 无 `better-sqlite3`）→ 在装了依赖的检出里执行 `npm install && npm test`。
 
 ---
 
@@ -462,3 +465,6 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 | 4 | P0-1 步骤 2：把 `formatElapsed` 的测试加到 `test/utils.test.js` | `test/utils.test.js` 走 `./_helper`（require server.js → better-sqlite3），是**后端** `lib/utils.js` 的测试；前端纯函数塞进去会平白拖上 DB 依赖 | 另建 `test/frontend-utils.test.js`（3 例，无 DB 即可跑） |
 | 5 | P0-2 步骤 3：新增 `test/inspiration.routes.test.js` 验证去重 | 路由级用例需 DB，且 `test/_server.js` 会屏蔽 LLM/RedFox 密钥 → `/inspirations/generate` 在无 LLM 时必然失败，「去重命中」无法观察 | 抽出 `lib/single-flight.js` **纯模块**并单测 6 例（可跑、可复用）；`/rewrite` 的既有内联去重**保持不动**以降风险，两处语义统一留作后续 |
 | 6 | P0-1 步骤 7：「改过 Tailwind class 则 `npm run build`」 | 新增等待态若用新 class 就必须重建 CSS 产物 | 只用**内联样式 + index.html 已出现的 class**（`btn btn-ghost py-0.5 px-1.5 text-[11px]`），本轮**无需** `npm run build` |
+| 7 | P0-3 用例 ①「二次调用不新增 `llm_usage`」 | `test/_server.js` 会屏蔽 LLM 密钥，无密钥时真实 `callLlmJson` 必然抛错，「`llm_usage` 新增几行」无法观察 | `test/hot-trends.test.js` 用 `hotLib.make({ callLlmJson: 桩 })` 注入桩并**精确断言桩被调用次数**（等价口径：0 次调用 = 0 行 `llm_usage`），同时不依赖网络与密钥 |
+| 8 | P0-3 窗口归一化（原计划在两处各写 `days === 7 ? 7 : 14`） | 路由与 `getHotTrends` 各写一遍会静默漂移 | 抽到 `lib/utils.js` 的 `normalizeTrendDays` 并单测（`test/hot-window.test.js` 3 例）—— 这也是 C1 里本环境唯一可跑的断言 |
+| 9 | P0-3 步骤 3 只要求「元信息条 + 二次确认」 | 「强制重新分析」是全应用最长任务（约 4 批 LLM），只给静态「分析中…」等于又一个卡死感 | 顺手接入 P0-1 的 `busyState`（实时计时 + 取消）与同款防重入；不新增 Tailwind class |

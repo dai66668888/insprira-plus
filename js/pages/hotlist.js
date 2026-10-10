@@ -1,13 +1,15 @@
-import { localApi, cancelApi } from '../api.js';
+import { localApi, cancelApi, isAbortError } from '../api.js';
 import { toggleCron } from './settings.js';
 import { esc, fmt } from '../utils.js';
 import { platName, platColor, platCodeByName } from '../config.js';
-import { toast, skeleton, rankBadge } from '../components.js';
+import { toast, skeleton, rankBadge, busyState } from '../components.js';
 import { initIcons } from '../icons.js';
 import { adaptDY, adaptXHS, adaptGZH, adaptAIGZH, adaptAIBili, adaptAIXHS, adaptAiFeed } from '../core/adapters.js';
 import { renderListItem } from '../core/renderers.js';
 
 let hotCache = { dy: null, xhs: null, gzh: null, aiGzh: null, hotKeyword: null, hotCacheTime: 0 };
+// 趋势分析进行中标志（P0-3）：一次「重新分析」要跑约 4 批 LLM，连点必须被拦住
+let trendAnalyzeInFlight = false;
 
 // 热榜 tab grid 专用紧凑渲染：4 列 × 5 行，单行标题 + 1 行指标
 function renderCompactItem(item) {
@@ -308,8 +310,25 @@ export async function loadHotTrends() {
 
 export function renderLlmTrends(el, data) {
   const themes = data.themes || [];
+  // 元信息条（P0-3 / 验收 C1、C3）：把「实际生效窗口 / 数据截至 / 报告生成时间 / 批次完整度」摆出来。
+  // 此前这些都不可见 —— 传 7 天却看到 14 天数据、某批 LLM 失败导致关键词偏少，用户都无从判断原因。
+  const analyzedDays = data.analyzedDays === 7 ? 7 : 14;
+  const stats = data.batchStats;
+  const batchText = stats && Number.isFinite(Number(stats.total))
+    ? (Number(stats.failed) > 0
+      ? `<span class="text-red-400">批次 ${stats.failed}/${stats.total} 失败</span>`
+      : `<span class="text-emerald-400/80">批次完整（${stats.total}/${stats.total}）</span>`)
+    : '';
+  const generatedAt = data.generatedAt ? new Date(data.generatedAt).toLocaleString('zh-CN') : '未知';
+  const metaBar = `<div class="md:col-span-2 flex items-center gap-2 flex-wrap rounded-lg bg-white/[0.025] px-3 py-2 text-[11px] text-gray-400">
+      <span class="pill pill-sky">近 ${analyzedDays} 天</span>
+      <span>数据截至 ${esc(data.analyzedThrough || '无')}</span>
+      <span>· 报告生成于 ${esc(generatedAt)}</span>
+      ${batchText ? `<span>· ${batchText}</span>` : ''}
+      <span class="text-gray-500">· 热榜数据未变时直接复用报告，不重复调用 LLM</span>
+    </div>`;
   if (!themes.length) {
-    el.innerHTML = `<div class="md:col-span-2 text-center text-gray-500 py-8 text-sm">${esc(data.summary || '尚未积累足够的真实日榜数据')}</div>`;
+    el.innerHTML = metaBar + `<div class="md:col-span-2 text-center text-gray-500 py-8 text-sm">${esc(data.summary || '尚未积累足够的真实日榜数据')}</div>`;
     return;
   }
   const summaryHtml = data.summary
@@ -334,24 +353,44 @@ export function renderLlmTrends(el, data) {
       ${titles}
     </div>`;
   }).join('');
-  const reanalyzeBtn = `<div class="md:col-span-2 text-center py-2"><button class="btn btn-ghost py-1.5 text-xs" data-action="analyzeTrends"><i data-lucide="sparkles" class="w-3.5 h-3.5"></i>重新分析</button></div>`;
-  el.innerHTML = summaryHtml + themesHtml + reanalyzeBtn;
+  // data-force=true 才会强制重算（并且会再确认一次）；不带该属性时命中缓存直接复用上次报告
+  const reanalyzeBtn = `<div class="md:col-span-2 text-center py-2">
+      <button class="btn btn-ghost py-1.5 text-xs" data-action="analyzeTrends" data-force="true" title="强制重新分析会重新调用全部批次（约 4 批 LLM）"><i data-lucide="sparkles" class="w-3.5 h-3.5"></i>重新分析</button>
+      <div class="text-[11px] text-gray-500 mt-1">热榜数据未变时会直接复用上次报告</div>
+    </div>`;
+  el.innerHTML = metaBar + summaryHtml + themesHtml + reanalyzeBtn;
   initIcons(document.getElementById('content-area'));
 }
 
-export async function analyzeTrends() {
+export async function analyzeTrends(meta = {}) {
   const el = document.getElementById('hot-trends');
   if (!el) return;
-  const days = document.getElementById('trendDays')?.value || 14;
+  if (trendAnalyzeInFlight) { toast('趋势分析进行中，请等待当前任务完成', 'info'); return; }
+  // force 只来自「重新分析」按钮的 data-force：强制重算会重新调用全部批次，必须先确认
+  const force = meta.force === 'true' || meta.force === true;
+  if (force && !confirm('强制重新分析会重新调用全部批次（约 4 批 LLM），确认继续？\n\n如果热榜数据没变，直接用已有报告即可。')) return;
+  const days = document.getElementById('trendDays')?.value || 14; // 服务端只认 7/14，并会回报实际生效窗口
+  trendAnalyzeInFlight = true;
   el.innerHTML = '<div class="md:col-span-2 text-center text-purple-300 py-8 text-sm"><i data-lucide="sparkles" class="w-4 h-4 inline-block animate-pulse"></i> AI 正在分析热榜趋势…</div>';
   initIcons(document.getElementById('content-area'));
+  // 这是应用里最长的任务之一（约 4 批 LLM）：给实时计时 + 取消（复用 P0-1 的 busyState）
+  const busy = busyState(el, { label: '正在分析趋势…', abortKey: 'hot-trends-analyze', before: el.firstElementChild });
   try {
-    const result = await localApi(`hot/trends/analyze?days=${days}`, { method: 'POST', body: {} });
-    // 数据不足回溯时实际分析日期可能不是昨天，明确告知用户
-    toast(result?.analyzedDate ? `分析完成（数据日期 ${result.analyzedDate}）` : '分析完成', 'success');
-    loadHotTrends();
+    const result = await localApi(`hot/trends/analyze?days=${days}`, { method: 'POST', body: { force }, abortKey: 'hot-trends-analyze' });
+    // 数据不足回溯时实际分析日期可能不是昨天；窗口以服务端归一化后的结果为准，明确告知用户
+    const windowText = result?.analyzedDays ? ` · 近 ${result.analyzedDays} 天` : '';
+    toast(result?.analyzedDate ? `分析完成（数据日期 ${result.analyzedDate}${windowText}）` : '分析完成', 'success');
+    await loadHotTrends();
   } catch (e) {
-    if (el.isConnected) el.innerHTML = `<div class="md:col-span-2 text-center text-red-400 py-8 text-sm">分析失败：${esc(e.message)}</div>`;
+    if (isAbortError(e)) {
+      if (el.isConnected) el.innerHTML = '<div class="md:col-span-2 text-center text-gray-400 py-8 text-sm">已取消分析，上次结果已保留</div>';
+      toast('已取消趋势分析', 'info');
+    } else if (el.isConnected) {
+      el.innerHTML = `<div class="md:col-span-2 text-center text-red-400 py-8 text-sm">分析失败：${esc(e.message)}</div>`;
+    }
+  } finally {
+    trendAnalyzeInFlight = false;
+    busy.stop();
   }
 }
 
