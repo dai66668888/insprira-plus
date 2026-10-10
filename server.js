@@ -23,6 +23,7 @@ const {
 } = require('./lib/password');
 const {
   EDITABLE_ENV_KEYS, loadEnvFile, readEnvValues, publicEnvConfig, updateEnvConfig, restartCurrentService,
+  resolveEnvFile,
 } = require('./lib/env');
 const { serveStatic: serveStaticFromLib } = require('./lib/static');
 const {
@@ -91,7 +92,8 @@ const APP_VERSION = (() => {
 
 const execFileAsync = promisify(execFile);
 
-const ENV_FILE = path.join(__dirname, '.env');
+// .env 路径：默认仓库根的 .env；ENV_FILE_PATH 可覆盖（测试隔离用，见 lib/env.js 的 resolveEnvFile）
+const ENV_FILE = resolveEnvFile();
 loadEnvFile(ENV_FILE);
 
 // Docker 管理变量：来自 compose environment: 段或容器系统环境，.env 文件不应覆盖

@@ -1,11 +1,20 @@
 // ============= 公众号排版内核测试（方案 §7） =============
 // 引导：不经过 _helper.js（纯前端函数，不碰 server 与数据库）。
 // 动态 import 浏览器 ESM 内核 —— js/package.json 声明 "type": "module" 后 Node 可直接加载；
-// marked 用 npm 版（devDependencies，v15）注入，与 vendor/marked.min.js 同版本：
+// marked 用 npm 版（devDependencies，v15）注入，与 vendor/marked.min.js 同版本（15.0.12）：
 // 浏览器运行时用 vendor 那份 UMD，测试用 npm 这份，同一份内核代码两侧共享。
+// 生产镜像只装运行时依赖（容器内 npm test 会 Cannot find module 'marked'），
+// 故此处回退到 vendor 的同版本 UMD，保证容器内也能跑这套内核测试。
 const { test, before } = require('node:test');
 const assert = require('node:assert/strict');
-const { Marked, Renderer } = require('marked');
+
+let Marked;
+let Renderer;
+try {
+  ({ Marked, Renderer } = require('marked'));
+} catch {
+  ({ Marked, Renderer } = require('../vendor/marked.min.js'));
+}
 
 let engine;
 

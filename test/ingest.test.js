@@ -1,14 +1,13 @@
 // 插件上报接口路由级测试：token 鉴权 / 账号匹配 / upsert + 历史点
-const path = require('path');
 process.env.INGEST_TOKEN = process.env.INGEST_TOKEN || 'test-ingest-token';
-const { boot, close, req } = require('./_server');
+// ENV_FILE 由 _server.js 提供（已隔离成不存在的临时路径），保证与服务端同一解析口径
+const { boot, close, req, ENV_FILE } = require('./_server');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { db } = require('../lib/db');
 const { readEnvValues } = require('../lib/env');
 
-// 与服务端同一解析口径：.env 文件优先，process.env 兜底（防真实 .env 已配置时误挂）
-const ENV_FILE = path.join(__dirname, '..', '.env');
+// 与服务端同一解析口径：ENV_FILE 优先，process.env 兜底
 const TOKEN = (readEnvValues(ENV_FILE).INGEST_TOKEN || process.env.INGEST_TOKEN || '').trim();
 
 const ACC = 'test-ingest-acc';

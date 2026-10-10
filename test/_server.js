@@ -11,7 +11,13 @@ fs.mkdirSync(TMP_DATA_DIR, { recursive: true });
 process.env.DATA_DIR = TMP_DATA_DIR;
 process.env.ENABLE_SCHEDULER = 'false';
 process.env.HOST = '127.0.0.1';
-// 屏蔽真实 .env（loadEnvFile 只在 process.env[key] == null 时填，先占位）
+// 隔离真实 .env：把 .env 路径指向临时目录下一个「不存在」的文件。
+// 必须做这一步 —— server.js 启动时会「以 .env 文件为准覆盖非 docker 管理变量」，
+// 光用 process.env 占位挡不住用户本地的真实 .env（现象：测试真去调 LLM/RedFox）；
+// 隔离后 readEnvValues(ENV_FILE) 一律读空并回退 process.env。
+const ENV_FILE = path.join(TMP_DATA_DIR, '.env.test-absent');
+process.env.ENV_FILE_PATH = ENV_FILE;
+// 屏蔽真实密钥（loadEnvFile 只在 process.env[key] == null 时填，先占位；隔离后不再被 .env 覆盖）
 process.env.REDFOX_API_KEY = '';
 process.env.LLM_API_KEY = '';
 process.env.LLM_BASE_URL = '';
@@ -61,4 +67,4 @@ async function req(pathStr, opts = {}) {
   return { status: res.status, headers: res.headers, body: text, json };
 }
 
-module.exports = { boot, close, req, TMP_DATA_DIR };
+module.exports = { boot, close, req, TMP_DATA_DIR, ENV_FILE };
