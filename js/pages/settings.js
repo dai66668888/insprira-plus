@@ -397,6 +397,13 @@ function startWersssQrPolling() {
   }, 3000);
 }
 
+// P0-5：数值型 .env 键（设置页给 inputmode=numeric 提示；取值范围由 lib/env.js 的 ENV_NUMBER_RANGES 校验）
+const NUMERIC_ENV_KEYS = new Set([
+  'LLM_MAX_TOKENS', 'LLM_MAX_CONCURRENCY', 'LLM_QUEUE_TIMEOUT_MS',
+  'LLM_FIRST_TOKEN_TIMEOUT_MS', 'LLM_IDLE_TIMEOUT_MS', 'LLM_TOTAL_TIMEOUT_MS',
+  'LLM_RETRIES', 'LLM_DAILY_CALL_LIMIT', 'REDFOX_DAILY_CALL_LIMIT',
+]);
+
 export async function openEnvModal() {
   try {
     const config = await localApi('env');
@@ -414,6 +421,17 @@ export async function openEnvModal() {
       ['MP_APP_SECRET','公众号 AppSecret','password','服务器出口 IP 需加进公众平台 IP 白名单（dashboard「官方数据」报 40164 时可一键自动配置）。'],
       ['MP_ACCOUNT_NAME','公众号名称','text','可选。该 AppID 对应「我的账号」里的公众号名，多公众号时用于精确匹配。'],
       ['CHROME_PATH','Chrome 路径','text','可选。IP 白名单自动配置用，缺省自动探测 /usr/bin/google-chrome 等常见路径。'],
+      // —— 预算与稳定性开关（P0-5：可在设置页改；数值范围由 lib/env.js 校验，非法值保存时报错）——
+      ['LLM_MAX_TOKENS','LLM 单次生成 token 上限','text','单次响应最大生成 token 数（256~32768，默认 4096），长文创作建议 8192。调大更贵更慢。'],
+      ['LLM_MAX_CONCURRENCY','LLM 并发上限','text','同时进行的模型请求数上限（1~16，默认 2），超出的请求排队 —— 保护手动创作与定时任务不互相踩踏。'],
+      ['LLM_QUEUE_TIMEOUT_MS','LLM 排队超时(ms)','text','排队等待的毫秒上限（1000~600000，默认 120000），超时返回「模型排队中」。'],
+      ['LLM_FIRST_TOKEN_TIMEOUT_MS','LLM 首包超时(ms)','text','等待首个响应字节的毫秒数（1000~600000，默认 90000，覆盖深度思考的慢启动）。'],
+      ['LLM_IDLE_TIMEOUT_MS','LLM 断流超时(ms)','text','流式响应两个 chunk 之间的最大间隔（1000~600000，默认 45000）。'],
+      ['LLM_TOTAL_TIMEOUT_MS','LLM 单次总超时(ms)','text','单次尝试的总时长上限（1000~600000，默认 300000）。'],
+      ['LLM_RETRIES','LLM 重试次数','text','失败自动重试次数（0~5，默认 2）。'],
+      ['LLM_DAILY_CALL_LIMIT','LLM 每日调用上限','text','当日 LLM 调用次数上限（0~100000，0 = 不限制）。超限立即给出友好提示而非裸 429。'],
+      ['REDFOX_DAILY_CALL_LIMIT','RedFox 每日调用上限','text','当日 RedFox API 调用上限（0~100000，0 = 不限制），防止配额被打穿导致创作/追踪连锁失败。'],
+      ['INGEST_TOKEN','插件上报令牌','password','可选。公众号插件上报 /api/_/ingest/mp-stats 用的令牌（生成：openssl rand -hex 16），留空则上报接口返回 503。该令牌等同密码，按密码对待。'],
       ['ENABLE_SCHEDULER','启用调度器','text',''],
     ];
     const modal = document.createElement('div');
@@ -423,7 +441,7 @@ export async function openEnvModal() {
       <form id="env-config-form"><div class="grid grid-cols-1 md:grid-cols-2 gap-3">${fields.map(([key,label,type,tip='',link='',options=null]) => `
         <div><label class="text-xs text-gray-400 flex items-center gap-1.5 mb-1">${label}${tip ? `<span class="help-tip" data-tip="${esc(tip)}">?</span>` : ''}${link ? ` <a href="${esc(link)}" target="_blank" rel="noopener" class="text-cyan-300 hover:underline text-[11px]">申请</a>` : ''} ${config[key]?.configured ? '<span class="text-emerald-400">已配置</span>' : ''}</label>${type === 'select'
           ? `<select class="input font-mono text-xs" data-env-key="${key}">${(options || []).map(([value, text]) => `<option value="${esc(value)}">${esc(text)}</option>`).join('')}</select>`
-          : `<input class="input font-mono text-xs" type="${type}" autocomplete="${type === 'password' ? 'new-password' : 'off'}" data-env-key="${key}" placeholder="${config[key]?.secret && config[key]?.configured ? '留空保留原值' : ''}" />`}</div>
+          : `<input class="input font-mono text-xs" type="${type}"${NUMERIC_ENV_KEYS.has(key) ? ' inputmode="numeric"' : ''} autocomplete="${type === 'password' ? 'new-password' : 'off'}" data-env-key="${key}" placeholder="${config[key]?.secret && config[key]?.configured ? '留空保留原值' : ''}" />`}</div>
       `).join('')}</div>
       <div class="flex justify-end mt-5"><button type="submit" class="btn btn-primary" data-action="saveEnvConfig"><i data-lucide="save" class="w-3.5 h-3.5"></i>保存 .env</button></div></form>
     </div>`;
@@ -478,19 +496,31 @@ export async function restartService() {
   } catch (e) { toast(`重启失败：${e.message}`, 'error'); }
 }
 
+// 用量卡片：今日/30 天自用调用（E1：与 api_usage 聚合 SQL 一一对应）
+// + RedFox 官方额度（只读）+ LLM 并发与当日调用（/api/_/stats 的 llm 块，E2）。
+// 两块数据并行取，任一失败不阻断另一块。
 export async function loadQuota() {
   const host = document.getElementById('quota-content');
   if (!host) return;
   host.textContent = '读取中…';
   try {
-    const quota = await localApi('quota');
+    const [quota, stats] = await Promise.all([
+      localApi('quota'),
+      localApi('stats').catch(() => null),
+    ]);
     const today = quota.usage.today || {};
     const month = quota.usage.last30Days || {};
     const points = quota.official?.data || null;
-    // 8 个指标 · 4×2 紧凑网格，自用调用 + RedFox 额度合一，不分模块
+    const live = stats?.llm?.live || null;
+    const llmTodayCalls = stats?.llm?.todayCalls;
+    const errors = today.errors ?? 0;
+    // 今日 4 个数字对应：COUNT(*) requests / SUM(cached=0) calls / SUM(cached=1) cache_hits / SUM(status_code>=400) errors
     // 官方额度不可读时显示 "--"，不阻断自用调用数据
     const cells = [
+      ['今日请求', today.requests ?? 0, ''],
       ['今日调用', today.calls ?? 0, ''],
+      ['今日缓存命中', today.cache_hits ?? 0, ''],
+      ['今日错误', errors, errors > 0 ? 'text-red-400' : ''],
       ['30天调用', month.calls ?? 0, ''],
       ['总点数', points?.totalAvailablePoints, 'text-emerald-300'],
       ['免费',     points?.freeAvailablePoints,  'text-purple-300'],
@@ -502,6 +532,16 @@ export async function loadQuota() {
     const officialNote = !points && quota.official?.error
       ? `<div class="text-[10px] text-gray-500 mt-1.5 leading-relaxed">官方额度未读取：${esc(quota.official.error)}。在 .env 配 REDFOX_WEB_COOKIE 可解锁。</div>`
       : '';
+    // LLM 并发闸与当日调用：并发上限/排队数是「模型排队中」这类问题的第一现场
+    const llmNote = live
+      ? `<div class="flex flex-wrap items-center gap-1.5 mt-2 text-[11px]">
+          <span class="text-gray-500">LLM 并发</span>
+          <span class="text-gray-200 font-semibold">${live.active} 活跃 / ${live.queued} 排队</span>
+          <span class="text-gray-500">并发上限 ${live.limit}</span>
+          <span class="text-gray-500">· 今日 LLM 调用</span>
+          <span class="text-gray-200 font-semibold">${llmTodayCalls ?? '--'} 次</span>
+        </div>`
+      : '';
     host.innerHTML = `
       <div class="grid grid-cols-4 gap-1.5">
         ${cells.map(([label, value, color]) => `
@@ -510,6 +550,7 @@ export async function loadQuota() {
             <div class="text-base font-bold mt-0.5 ${color} leading-tight">${value ?? '--'}</div>
           </div>`).join('')}
       </div>
+      ${llmNote}
       ${officialNote}`;
   } catch (e) {
     host.innerHTML = `<span class="text-red-400">${esc(e.message)}</span>`;

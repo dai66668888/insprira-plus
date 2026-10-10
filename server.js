@@ -843,6 +843,7 @@ async function handleLocalApi(req, res, url) {
     NOTIFICATION_CHANNELS, sendNotification,
     listLocalAgents, runLocalAgent,
     captureHotSnapshot, findRewriteHotspots, rewriteForPlatform,
+    logAction, // P0-5：/api/_/rewrite 的成本归因审计
     llmStats: () => llmInstance.stats(),
   })) {
     return true;
@@ -928,7 +929,7 @@ async function handleLocalApi(req, res, url) {
   }
 
   // ========== 公众号排版助手（AI 一键排版） ==========
-  if (await require('./lib/routes/mp-format').tryRoute(req, res, url, { llm: llmInstance })) {
+  if (await require('./lib/routes/mp-format').tryRoute(req, res, url, { llm: llmInstance, logAction })) {
     return true;
   }
 

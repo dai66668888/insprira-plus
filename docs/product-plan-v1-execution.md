@@ -48,7 +48,7 @@
 | 门禁 | 命令 | 说明 |
 |---|---|---|
 | 语法 | `npm run check` | 后端 `server.js` 语法 |
-| 全量测试 | `npm test` | `node --test`，当前 **190 例**（各 `test/*.test.js` 的 `^test(` 计数），**本轮不得减少** |
+| 全量测试 | `npm test` | `node --test`，当前 **198 例**（各 `test/*.test.js` 的 `^test(` 计数），**本轮不得减少** |
 | 样式 | `npm run build` | 仅当新增/修改了 Tailwind class |
 | 定向测试 | `node --test test/<file>.test.js` | 改哪个模块跑哪个 |
 
@@ -248,7 +248,7 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 
 ---
 
-### P0-5 用量与杠杆上屏 + 成本归因　`[ ]`　工作量 S/M
+### P0-5 用量与杠杆上屏 + 成本归因　`[x]` 代码完成（E1-E5 待验收）　工作量 S/M
 
 **目标**：预算/稳定性开关能在设置页改；用量与并发看得见；最贵的两次调用进入审计。
 
@@ -266,12 +266,12 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 
 **实施步骤**
 
-- [ ] 1. `lib/env.js` 白名单 + 数值校验
-- [ ] 2. `js/pages/settings.js` env 字段表加数值项
-- [ ] 3. `js/pages/settings.js` 用量卡片补 3 个 API 指标 + LLM 区块（接 `/api/_/stats`）
-- [ ] 4. `lib/routes/misc.js` / `lib/routes/mp-format.js` 补 `logAction`
-- [ ] 5. 补 env 校验测试用例
-- [ ] 6. 验收 E1~E5
+- [x] 1. `lib/env.js` 白名单 + 数值校验（新增 `ENV_NUMBER_RANGES` / `validateEnvValue` 纯函数，可离线单测）
+- [x] 2. `js/pages/settings.js` env 字段表加 10 个数值/令牌字段（数值键带 `inputmode="numeric"`）
+- [x] 3. `js/pages/settings.js` 用量卡片补 `requests`/`cache_hits`/`errors` 三个指标 + LLM 区块（接 `/api/_/stats` 的 `llm.live` / `todayCalls`）
+- [x] 4. `lib/routes/misc.js`（`/api/_/rewrite`：真实调用记 `llm_calls=1`，去重命中记 1 行但 `llm_calls=0`）/ `lib/routes/mp-format.js`（`ai-layout` 记 `llm_calls=1`）补 `logAction`；`server.js` 给 **misc 与 mp-format** 两组注入 `logAction`（misc 组原先漏了，见 §8.1-17）
+- [x] 5. 补 env 校验用例：新增 `test/env-validation.test.js` **8 例**（无 DB 即可跑）
+- [ ] 6. 验收 E1~E5（E1/E2/E5 需 DB → 容器内；E3/E4 需在设置页改 `.env` 后实测）
 
 **验收**（§5-E）
 
@@ -434,18 +434,18 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 | P0-2 灵感防重入 | `[x]` 代码完成，B1/B2/B3 待人工验收 | `cfad7fd` | B1-B3 | 机制级：`test/single-flight.test.js` 6/6；`node --check` 通过；路由级用例需 DB+LLM 环境 | 依赖 Batch 1；`/rewrite` 既有内联去重未统一（§8.1-5） |
 | P0-3 趋势卡可信化 | `[x]` 代码完成，**C1-C3 已实测通过**，C4 待人工验收 | `e5d078c` | C1-C4 | 容器内（Docker，已装 `better-sqlite3`）实测：`test/hot-trends.test.js` 3/3（二次分析不触达 LLM = C2、窗口决定回溯深度 = C1、批次完整度与库中 `json_extract` 一致 = C3）+ `test/hot-window.test.js` 3/3；宿主侧 7 个改动文件语法门禁通过 | LLM 走桩注入以免依赖密钥（§8.1-7）；窗口归一化抽成纯函数（§8.1-8） |
 | P0-4 排版闭环 | `[x]` 代码完成 + **D4 27 例全绿**，D1-D3 待人工验收 | 本轮工作树 | D1-D4 | 代码级：D4 的 27 例（`markdown-guard` 8 + `frontend-utils-render` 4 + `wechat-format-kernel` 15）宿主实测全绿 + 6 个改动文件语法门禁通过；新增 4 例路由用例（草稿 PUT→GET 一致、落 `local_data`、markdown 非字符串 400、超长 400、未登录 401）需 DB 环境执行；D1/D2/D3 的 UI 路径需合进 main 后在浏览器验收 | 直达草稿只在本次跳转生效、不持久化（§8.1-12）；草稿 PUT 只回执元信息（§8.1-13）；新增 `#formatTitle` 输入框（§8.1-14） |
-| P0-5 用量与杠杆 | `[ ]` | — | E1-E5 | — | 可与 2-4 并行 |
+| P0-5 用量与杠杆 | `[x]` 代码完成 + **新增 8 例单测全绿**，E1-E5 待验收 | 本轮工作树 | E1-E5 | 代码级：`test/env-validation.test.js` 8/8（枚举/整数/上下界/`0=不限制`/非法值不落盘/秘密键脱敏）+ 6 个改动文件语法门禁通过；E1/E2/E5 需 DB（容器内对照 `api_usage` 聚合与 `llm_usage` 行数），E3/E4 需在设置页改 `.env` 后实测 | 白名单新增 10 键；`LLM_MAX_TOKENS` 需豁免秘密键正则（§8.1-15）；`/api/_/stats` 无 `data` 包装（§8.1-16）；misc 组原先漏注入 `logAction`（§8.1-17） |
 | P1-1 SSE 流式 | `[ ]` | — | F1-F4 | — | 依赖 Batch 1 |
 | P1-2 长任务作业化 | `[ ]` | — | G1-G2 | — | 独立 |
 | P1-3 草稿箱同步 | `[ ]` | — | H1-H3 | — | 依赖凭证 + P0-4 |
 | P1-4 数据可信度 | `[ ]` | — | I1-I3 | — | 独立 |
 | P1-5 行动项关联 | `[ ]` | — | J1-J3 | — | 依赖 P1-4 |
 
-**测试基线变更（Batch 1-4 + 测试基建）**：+ `test/frontend-utils.test.js` 3、`test/single-flight.test.js` 6、`test/hot-window.test.js` 3、`test/hot-trends.test.js` 3、`test/env-file.test.js` 4、`test/mp-format.routes.test.js` 4（草稿）→ 全仓库静态计数 **167 → 190**（各 `test/*.test.js` 的 `^test(` 之和）。
-**本环境可运行验证（宿主，无 `node_modules`）**：51 例全绿 —— `frontend-utils` 3、`frontend-utils-render` 4、`llm-stream` 8、`markdown-guard` 8、`single-flight` 6、`hot-window` 3、`wechat-format-kernel` 15（自动回退 vendor 同版本 marked）、`env-file` 4。
+**测试基线变更（Batch 1-5 + 测试基建）**：+ `test/frontend-utils.test.js` 3、`test/single-flight.test.js` 6、`test/hot-window.test.js` 3、`test/hot-trends.test.js` 3、`test/env-file.test.js` 4、`test/mp-format.routes.test.js` 4（草稿）、`test/env-validation.test.js` 8（P0-5 数值校验）→ 全仓库静态计数 **167 → 198**（各 `test/*.test.js` 的 `^test(` 之和）。
+**本环境可运行验证（宿主，无 `node_modules`）**：**59 例全绿** —— `frontend-utils` 3、`frontend-utils-render` 4、`llm-stream` 8、`markdown-guard` 8、`single-flight` 6、`hot-window` 3、`wechat-format-kernel` 15（自动回退 vendor 同版本 marked）、`env-file` 4、`env-validation` 8。
 **容器内实测（Docker，已装 `better-sqlite3`）**：`docker compose exec insprira npm test` → `tests 179 / pass 173 / fail 6`；其中 P0-3 的 C1-C3 六条断言**全绿**，6 条失败逐条定位为**环境项**（真实 `.env` 使密钥遮蔽失效 ×3、用户 `.env` 的 `INGEST_TOKEN` 为空按设计触发 503 ×2 连带、生产镜像缺 devDependency `marked` ×1），详见 §8.1-10/11；已在 `1d6aa52` 修好，**待你在容器内重跑确认**（先 `git -C "E:\insprira-main" merge --ff-only inspira-local-032e7c38-loc`）。
 **依赖环境待跑（我方沙箱限制）**：本 worktree 无 `better-sqlite3`，且沙箱禁止 npm 的 spawn（`EPERM`）→ 走 `_helper.js`/`_server.js` 的 15 个文件（含 P0-4 新增的 4 例草稿用例）只能在装了依赖的环境执行（`docker compose exec insprira npm test`）。
-**待人工验收**：A1/A3/A4、B1-B3（等待态与防重入的 UI 路径）、C4（趋势页空态）、D1/D2/D3（P0-4 直达 / 草稿 / 复制前自检的 UI 路径），以及上面「容器内重跑」的全绿确认。
+**待人工验收**：A1/A3/A4、B1-B3（等待态与防重入的 UI 路径）、C4（趋势页空态）、D1/D2/D3（P0-4 直达 / 草稿 / 复制前自检的 UI 路径）、E1-E5（用量卡片 4 个数字对 SQL、并发闸与当日调用上屏、环境键保存、每日限额、两条审计记录），以及上面「容器内重跑」的全绿确认。
 
 ---
 
@@ -476,5 +476,8 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 | 12 | P0-4 步骤 2「载入优先级：`pendingFormatDraft` → 服务端草稿 → `LS`」 | 若把「直达成稿」也持久化成长期状态，下次进页会用它盖掉用户后来编辑的内容；可若只放内存，刷新一次就丢 | `pendingFormatDraft` **只在本次跳转生效、消费即置空**；送达后立刻写一次 `LS`（刷新不丢），再由 1.5s 防抖把成稿 PUT 到服务端草稿；服务端草稿只在**本地为空且用户未动手**时回填 |
 | 13 | P0-4 步骤 1 只写「`PUT` → `setLocalData(...)`」，未规定响应体 | 草稿上限 200000 字符（约 200KB），若回吐完整正文，每次自动保存都要多传一份大 payload | `PUT` 只回执 `{ title, updatedAt, length }`，要正文用 `GET` 回读；另把草稿上限独立放宽到 200000（AI 排版输入上限仍 15000），仍远小于 `lib/http.js` 的 `MAX_BODY_SIZE`(2MB) |
 | 14 | P0-4 步骤 2「有 `title` 时同步写入 `#formatTitle`（若存在，否则忽略）」 | 仓库里**原本没有** `#formatTitle`，只写守卫等于标题被静默丢弃；而复制前自检若把降级也并进新文案，会盖掉 D3 已验收的降级提示 | 排版页左栏新增 `#formatTitle` 输入框（只用已编译的 `input w-full mb-2 text-sm`，**免** `npm run build`），标题随草稿一起存；复制前自检只覆盖「正文超 20000 字 / 图片超 30 张」，降级仍走原有专门文案，且**不阻断复制** |
+| 15 | P0-5 步骤 1：把 `LLM_MAX_TOKENS` 加进 `EDITABLE_ENV_KEYS` | `publicEnvConfig` 的秘密键正则是 `/KEY\|PASSWORD\|COOKIE\|TOKEN\|SECRET/` —— `LLM_MAX_TOKENS` 名字里含 **TOKEN**，会被当成密钥：设置页看不到当前值、只显示「留空保留原值」 | 抽出 `isSecretKey()` 保持「命中密钥类命名一律脱敏」的保守语义，仅对 `LLM_MAX_TOKENS` 显式豁免（它只是生成 token 数上限）并加进单测 |
+| 16 | P0-5 步骤 3：设置页接 `/api/_/stats` 的 `llm.live` / `llm.todayCalls` | `localApi` 只返回 `payload.data`，但 `/api/_/stats`（`lib/routes/misc.js:38-56`）是**无 `data` 包装**的裸对象 → 取 `stats.data.llm` 会得到 `undefined`（`js/api.js:140` 对 `data === undefined` 直接返回整个 payload） | 前端按 `stats.llm.live` / `stats.llm.todayCalls` 取值；用量与 stats 用 `Promise.all` 并行取，`stats` 失败只少一块 LLM 区块、不影响用量数字 |
+| 17 | P0-5 步骤 4 称「`ctx.logAction` 已注入（见 `lib/routes/misc.js:28`）」 | `misc.js:28` 只是 `tryRoute` 顶部的依赖注释；`server.js:840-846` 的 misc 组 ctx **实际从未传 `logAction`** → 只靠 `typeof logAction === 'function'` 守卫会**静默不写审计行**（E5「`action_logs` 各新增 1 行」必挂） | 在 `server.js` 的 misc 组 ctx 补 `logAction,`（灵感组本来就有，见 `:871`）；两个路由仍保留函数类型守卫，避免只调用单个路由组的测试桩缺依赖时炸掉 |
 
 > **环境提示（非代码问题）**：若要用公众号插件上报 `/api/_/ingest/mp-stats`，需在 `.env` 填**非空** `INGEST_TOKEN`（当前为空，路由按设计返回 `503`）。验收 ingest 相关功能前要配好；与 P0 改造无关。
