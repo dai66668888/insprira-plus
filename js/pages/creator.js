@@ -5,6 +5,7 @@ import { platName } from '../config.js';
 import { busyState, toast } from '../components.js';
 import { gotoPage } from '../navigation.js';
 import { initIcons } from '../icons.js';
+import { sendToFormat } from './format.js';
 
 let rewriteHotspots = [];
 let selectedRewriteHotspot = null;
@@ -132,6 +133,19 @@ export function sendToCreator(item) {
   LS.set('creatorSource', item);
   toast('已发送到 AI 创作助手', 'success');
   gotoPage('creator');
+}
+
+// P0-4：把当前成稿（标题 + 前言 + 正文）直接送进排版页，省掉「复制 → 切页 → 粘贴」。
+// 成稿按「前言 \n\n 正文」拼接（与最终发布形态一致）；没有成稿时只提示，不跳页。
+export function sendDraftToFormat() {
+  const title = document.getElementById('rewriteTitle')?.value.trim() || '';
+  const intro = document.getElementById('rewriteIntro')?.value.trim() || '';
+  const body = document.getElementById('rewriteResult')?.value.trim() || '';
+  const markdown = [intro, body].filter(Boolean).join('\n\n');
+  if (!markdown) { toast('还没有可排版的成稿，先生成或粘贴内容', 'error'); return; }
+  sendToFormat({ title, markdown });
+  toast('已送到排版页', 'success');
+  gotoPage('format');
 }
 
 export async function doCheckWord() {

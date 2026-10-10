@@ -48,7 +48,7 @@
 | 门禁 | 命令 | 说明 |
 |---|---|---|
 | 语法 | `npm run check` | 后端 `server.js` 语法 |
-| 全量测试 | `npm test` | `node --test`，当前 **186 例**（各 `test/*.test.js` 的 `^test(` 计数），**本轮不得减少** |
+| 全量测试 | `npm test` | `node --test`，当前 **190 例**（各 `test/*.test.js` 的 `^test(` 计数），**本轮不得减少** |
 | 样式 | `npm run build` | 仅当新增/修改了 Tailwind class |
 | 定向测试 | `node --test test/<file>.test.js` | 改哪个模块跑哪个 |
 
@@ -169,7 +169,7 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 
 ---
 
-### P0-3 趋势卡可信化：窗口生效 + 重分析幂等 + 批次完整度上屏　`[x]` 代码完成（C1-C3 待依赖环境实测）　工作量 M
+### P0-3 趋势卡可信化：窗口生效 + 重分析幂等 + 批次完整度上屏　`[x]` 代码完成（C1-C3 已实测通过，C4 待人工验收）　工作量 M
 
 **目标**：让「7 天 / 14 天」真的生效、连点「重新分析」不再重复烧 4 批 LLM、批次缺失可见。
 
@@ -208,7 +208,7 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 
 ---
 
-### P0-4 创作 → 排版直达 + 服务端草稿 + 复制前自检　`[ ]`　工作量 M
+### P0-4 创作 → 排版直达 + 服务端草稿 + 复制前自检　`[x]` 代码完成（D1-D3 待人工验收）　工作量 M
 
 **目标**：消灭「复制成稿 → 切页 → 粘贴」的手工搬运与 localStorage 丢失风险；**不依赖**公众号凭证。
 
@@ -227,11 +227,11 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 
 **实施步骤**
 
-- [ ] 1. 后端：`lib/routes/mp-format.js` 加 `GET/PUT /draft` 两分支
-- [ ] 2. 前端：`js/pages/format.js` 导出 `sendToFormat` + 载入优先级 + 防抖保存 + 复制前自检
-- [ ] 3. 前端：`js/pages/creator.js` 入口 + `index.html` 按钮（复用 `btn` 类）
-- [ ] 4. 测试：`test/mp-format.routes.test.js` 追加 2 例；确认 D4 的 27 例（`markdown-guard` 8 + `frontend-utils-render` 4 + `wechat-format-kernel` 15）仍全绿
-- [ ] 5. 人工验收 D1/D2/D3，写入 §7
+- [x] 1. 后端：`lib/routes/mp-format.js` 加 `GET/PUT /draft` 两分支（独立上限 200000，落 `format-draft/default`）
+- [x] 2. 前端：`js/pages/format.js` 导出 `sendToFormat` + 载入优先级 + 防抖 1.5s PUT + 复制前自检
+- [x] 3. 前端：`js/pages/creator.js` 入口 + `index.html` 按钮（复用 `btn` 类，**未新增** Tailwind class）
+- [x] 4. 测试：`test/mp-format.routes.test.js` 追加 **4** 例（原计划 2 例，另加「markdown 非字符串 400」「未登录 401」）；D4 的 27 例宿主实测全绿
+- [ ] 5. 人工验收 D1/D2/D3，写入 §7（需先合进 main，容器里的代码才是本轮的）
 
 **验收**（§5-D）
 
@@ -433,7 +433,7 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 | P0-1 统一等待态 | `[x]` 代码完成，A1/A3/A4 待人工验收 | `cfad7fd` | A1-A4 | 代码级：`test/frontend-utils.test.js` 3/3 + 6 个改动文件 ESM 语法门禁通过；UI 路径未执行（无浏览器 provider） | 起点，Batch 1 |
 | P0-2 灵感防重入 | `[x]` 代码完成，B1/B2/B3 待人工验收 | `cfad7fd` | B1-B3 | 机制级：`test/single-flight.test.js` 6/6；`node --check` 通过；路由级用例需 DB+LLM 环境 | 依赖 Batch 1；`/rewrite` 既有内联去重未统一（§8.1-5） |
 | P0-3 趋势卡可信化 | `[x]` 代码完成，**C1-C3 已实测通过**，C4 待人工验收 | `e5d078c` | C1-C4 | 容器内（Docker，已装 `better-sqlite3`）实测：`test/hot-trends.test.js` 3/3（二次分析不触达 LLM = C2、窗口决定回溯深度 = C1、批次完整度与库中 `json_extract` 一致 = C3）+ `test/hot-window.test.js` 3/3；宿主侧 7 个改动文件语法门禁通过 | LLM 走桩注入以免依赖密钥（§8.1-7）；窗口归一化抽成纯函数（§8.1-8） |
-| P0-4 排版闭环 | `[ ]` | — | D1-D4 | — | 不依赖 MP 凭证 |
+| P0-4 排版闭环 | `[x]` 代码完成 + **D4 27 例全绿**，D1-D3 待人工验收 | 本轮工作树 | D1-D4 | 代码级：D4 的 27 例（`markdown-guard` 8 + `frontend-utils-render` 4 + `wechat-format-kernel` 15）宿主实测全绿 + 6 个改动文件语法门禁通过；新增 4 例路由用例（草稿 PUT→GET 一致、落 `local_data`、markdown 非字符串 400、超长 400、未登录 401）需 DB 环境执行；D1/D2/D3 的 UI 路径需合进 main 后在浏览器验收 | 直达草稿只在本次跳转生效、不持久化（§8.1-12）；草稿 PUT 只回执元信息（§8.1-13）；新增 `#formatTitle` 输入框（§8.1-14） |
 | P0-5 用量与杠杆 | `[ ]` | — | E1-E5 | — | 可与 2-4 并行 |
 | P1-1 SSE 流式 | `[ ]` | — | F1-F4 | — | 依赖 Batch 1 |
 | P1-2 长任务作业化 | `[ ]` | — | G1-G2 | — | 独立 |
@@ -441,11 +441,11 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 | P1-4 数据可信度 | `[ ]` | — | I1-I3 | — | 独立 |
 | P1-5 行动项关联 | `[ ]` | — | J1-J3 | — | 依赖 P1-4 |
 
-**测试基线变更（Batch 1-3 + 测试基建）**：+ `test/frontend-utils.test.js` 3、`test/single-flight.test.js` 6、`test/hot-window.test.js` 3、`test/hot-trends.test.js` 3、`test/env-file.test.js` 4 → 全仓库静态计数 **167 → 186**（各 `test/*.test.js` 的 `^test(` 之和）。
+**测试基线变更（Batch 1-4 + 测试基建）**：+ `test/frontend-utils.test.js` 3、`test/single-flight.test.js` 6、`test/hot-window.test.js` 3、`test/hot-trends.test.js` 3、`test/env-file.test.js` 4、`test/mp-format.routes.test.js` 4（草稿）→ 全仓库静态计数 **167 → 190**（各 `test/*.test.js` 的 `^test(` 之和）。
 **本环境可运行验证（宿主，无 `node_modules`）**：51 例全绿 —— `frontend-utils` 3、`frontend-utils-render` 4、`llm-stream` 8、`markdown-guard` 8、`single-flight` 6、`hot-window` 3、`wechat-format-kernel` 15（自动回退 vendor 同版本 marked）、`env-file` 4。
-**容器内实测（Docker，已装 `better-sqlite3`）**：`docker compose exec insprira npm test` → `tests 179 / pass 173 / fail 6`；其中 P0-3 的 C1-C3 六条断言**全绿**，6 条失败逐条定位为**环境项**（真实 `.env` 使密钥遮蔽失效 ×3、用户 `.env` 的 `INGEST_TOKEN` 为空按设计触发 503 ×2 连带、生产镜像缺 devDependency `marked` ×1），详见 §8.1-10/11；已在 `e5d078c` 之后修复，待容器内重跑确认。
-**依赖环境待跑（我方沙箱限制）**：本 worktree 无 `better-sqlite3`，且沙箱禁止 npm 的 spawn（`EPERM`）→ 走 `_helper.js`/`_server.js` 的 15 个文件必须在装了依赖的环境执行（`docker compose exec insprira npm test`）。
-**待人工验收**：A1/A3/A4、B1-B3（等待态与防重入的 UI 路径）、C4（趋势页空态）。
+**容器内实测（Docker，已装 `better-sqlite3`）**：`docker compose exec insprira npm test` → `tests 179 / pass 173 / fail 6`；其中 P0-3 的 C1-C3 六条断言**全绿**，6 条失败逐条定位为**环境项**（真实 `.env` 使密钥遮蔽失效 ×3、用户 `.env` 的 `INGEST_TOKEN` 为空按设计触发 503 ×2 连带、生产镜像缺 devDependency `marked` ×1），详见 §8.1-10/11；已在 `1d6aa52` 修好，**待你在容器内重跑确认**（先 `git -C "E:\insprira-main" merge --ff-only inspira-local-032e7c38-loc`）。
+**依赖环境待跑（我方沙箱限制）**：本 worktree 无 `better-sqlite3`，且沙箱禁止 npm 的 spawn（`EPERM`）→ 走 `_helper.js`/`_server.js` 的 15 个文件（含 P0-4 新增的 4 例草稿用例）只能在装了依赖的环境执行（`docker compose exec insprira npm test`）。
+**待人工验收**：A1/A3/A4、B1-B3（等待态与防重入的 UI 路径）、C4（趋势页空态）、D1/D2/D3（P0-4 直达 / 草稿 / 复制前自检的 UI 路径），以及上面「容器内重跑」的全绿确认。
 
 ---
 
@@ -461,7 +461,7 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 
 > 补充：`/api/_/env` 的 GET/PUT 落在 `lib/routes/auth.js:164-172`（不是 `misc.js`），`updateEnvConfig` 会跳过空值（`lib/env.js:63`）——所以「设为 0」必须传字符串 `'0'`，且**无法通过设置页清空**某个键，这是既有语义，任务卡已按此设计。
 
-### 8.1 实施期新增的落地偏差（Batch 1-2 实际执行记录）
+### 8.1 实施期新增的落地偏差（Batch 1-4 实际执行记录）
 
 | # | 计划写法 | 实际发现 | 最终做法 |
 |---|---|---|---|
@@ -473,5 +473,8 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 | 9 | P0-3 步骤 3 只要求「元信息条 + 二次确认」 | 「强制重新分析」是全应用最长任务（约 4 批 LLM），只给静态「分析中…」等于又一个卡死感 | 顺手接入 P0-1 的 `busyState`（实时计时 + 取消）与同款防重入；不新增 Tailwind class |
 | 10 | （未预料）在「已配置真实 `.env`」的检出里跑 `npm test` | `server.js:105-118` 的 `syncEnvFileOnBoot()` 启动时「以 .env 文件为准覆盖非 docker 管理变量」，会把 `test/_server.js` 的密钥占位**反向覆盖** → `ai-layout` 用例真调 LLM（`200 ≠ 502`）、RedFox 白名单用例真调接口（`status >= 400` 不成立）；用户 `.env` 的 `INGEST_TOKEN` 为空 → `ingest` 用例按设计收到 `503`（第 3 例连带读不到 `work_id`）；`marked` 是 devDependency、生产镜像未装 → `wechat-format-kernel.test.js` 整文件 `MODULE_NOT_FOUND` | 新增 `lib/env.js` 的 `resolveEnvFile()`（可用 `ENV_FILE_PATH` 覆盖 `.env` 路径），`_server.js`/`_helper.js` 指向临时目录下**不存在**的文件；`ingest.test.js` 改读同一个 `ENV_FILE`（与服务端同口径）；`wechat-format-kernel.test.js` 缺 npm marked 时回退 `vendor/marked.min.js`（同版本 15.0.12） |
 | 11 | （测试基线）`test/_helper.js` 只设 `DATA_DIR`/`ENABLE_SCHEDULER` | 同样会被真实 `.env` 反向覆盖（用户 `.env` 里 `ENABLE_SCHEDULER` 非空 → 纯函数测试进程有注册 cron 的风险） | `_helper.js` 一并隔离 `ENV_FILE_PATH`；新增 `test/env-file.test.js` 4 例钉住「默认路径 / 覆盖生效 / 不存在时读空 / 空白裁剪」 |
+| 12 | P0-4 步骤 2「载入优先级：`pendingFormatDraft` → 服务端草稿 → `LS`」 | 若把「直达成稿」也持久化成长期状态，下次进页会用它盖掉用户后来编辑的内容；可若只放内存，刷新一次就丢 | `pendingFormatDraft` **只在本次跳转生效、消费即置空**；送达后立刻写一次 `LS`（刷新不丢），再由 1.5s 防抖把成稿 PUT 到服务端草稿；服务端草稿只在**本地为空且用户未动手**时回填 |
+| 13 | P0-4 步骤 1 只写「`PUT` → `setLocalData(...)`」，未规定响应体 | 草稿上限 200000 字符（约 200KB），若回吐完整正文，每次自动保存都要多传一份大 payload | `PUT` 只回执 `{ title, updatedAt, length }`，要正文用 `GET` 回读；另把草稿上限独立放宽到 200000（AI 排版输入上限仍 15000），仍远小于 `lib/http.js` 的 `MAX_BODY_SIZE`(2MB) |
+| 14 | P0-4 步骤 2「有 `title` 时同步写入 `#formatTitle`（若存在，否则忽略）」 | 仓库里**原本没有** `#formatTitle`，只写守卫等于标题被静默丢弃；而复制前自检若把降级也并进新文案，会盖掉 D3 已验收的降级提示 | 排版页左栏新增 `#formatTitle` 输入框（只用已编译的 `input w-full mb-2 text-sm`，**免** `npm run build`），标题随草稿一起存；复制前自检只覆盖「正文超 20000 字 / 图片超 30 张」，降级仍走原有专门文案，且**不阻断复制** |
 
 > **环境提示（非代码问题）**：若要用公众号插件上报 `/api/_/ingest/mp-stats`，需在 `.env` 填**非空** `INGEST_TOKEN`（当前为空，路由按设计返回 `503`）。验收 ingest 相关功能前要配好；与 P0 改造无关。

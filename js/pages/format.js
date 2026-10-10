@@ -12,6 +12,9 @@ import { markdownToPlainText, repairPlaceholderImageSyntax } from '../core/markd
 
 const RENDER_DEBOUNCE = 300;   // 预览重渲染防抖
 const SAVE_DEBOUNCE = 600;     // Markdown 草稿落 localStorage 防抖
+const DRAFT_PUSH_DEBOUNCE = 1500;    // 服务端草稿 PUT 防抖（P0-4：计划要求 1-2s）
+const COPY_SELFCHECK_CHARS = 20000;  // 复制前自检：正文超此字数给提示（不阻断复制）
+const COPY_SELFCHECK_IMAGES = 30;    // 复制前自检：图片超此张数给提示（不阻断复制）
 const AI_INPUT_LIMIT = 15000;  // AI 排版输入上限（与服务端 lib/routes/mp-format.js 一致，上游同值）
 
 let engine = null;
@@ -24,6 +27,11 @@ const imageMap = new Map();
 let imageCounter = 0;
 let renderTimer = null;
 let saveTimer = null;
+// P0-4：从创作页「排版预览」带来的成稿。只在**本次跳转**生效，消费后置空、不做任何持久化，
+// 避免覆盖用户正在编辑的草稿（计划 §2 P0-4 的回归风险项）。
+let pendingFormatDraft = null;
+let draftPushTimer = null;
+let lastPushedDraft = null;   // 服务端草稿去重指纹：内容没变就不发请求
 
 // ============= 示例文本（上游 sampleText 精简版） =============
 const SAMPLE_TEXT = `# 公众号排版助手示例
@@ -90,12 +98,41 @@ function getTemplate(id) {
   return list.find(t => t.id === id) || list[0] || null;
 }
 
+// ============= 创作页 → 排版页直达（P0-4） =============
+// 由 js/pages/creator.js 的 sendDraftToFormat() 调用（照 creator.js sendToCreator 的既有范式）：
+// 只把成稿暂存在模块级变量里，随后由 renderFormat 消费；本函数不落任何持久化存储。
+export function sendToFormat({ title = '', markdown = '' } = {}) {
+  pendingFormatDraft = { title: String(title || ''), markdown: String(markdown || '') };
+}
+
+// 消费即清空：保证「只在本次跳转生效」，下次进页回到正常载入顺序
+function consumePendingFormatDraft() {
+  const draft = pendingFormatDraft;
+  pendingFormatDraft = null;
+  return draft && draft.markdown ? draft : null;
+}
+
+// 标题落到 #formatTitle（该输入框不存在时忽略，不报错）
+function applyFormatTitle(title) {
+  const el = document.getElementById('formatTitle');
+  if (el && typeof title === 'string') el.value = title;
+}
+
 // ============= 页面入口 =============
 export function renderFormat() {
   const ok = !!ensureEngine();
   const editor = document.getElementById('formatEditor');
   if (!editor) return;
-  editor.value = LS.get('wf:markdown', '');
+  // 载入优先级：本次跳转带来的成稿 → localStorage → 服务端草稿（仅本地为空时异步补载）
+  const incoming = consumePendingFormatDraft();
+  editor.value = incoming ? incoming.markdown : LS.get('wf:markdown', '');
+  if (incoming) {
+    LS.set('wf:markdown', incoming.markdown); // 立即落本地：刷新 / 切页不丢
+    applyFormatTitle(incoming.title);
+    pushServerDraft();                        // 直达的成稿同步进服务端草稿
+  } else if (!editor.value.trim()) {
+    loadServerDraft(editor);
+  }
   renderCategoryTabs();
   renderTemplateGrid();
   renderTweaksPanel();
@@ -106,6 +143,7 @@ export function renderFormat() {
   });
   editor.addEventListener('paste', handleEditorPaste);
   document.getElementById('formatTweaksPanel')?.addEventListener('change', onTweaksPanelChange);
+  document.getElementById('formatTitle')?.addEventListener('input', scheduleServerDraftSave);
   updateWordCount();
   if (ok) doRender();
   else showPreviewHint('排版内核依赖的 marked 未加载，请检查 vendor/marked.min.js');
@@ -137,6 +175,47 @@ function scheduleSaveDraft() {
     const editor = document.getElementById('formatEditor');
     if (editor) LS.set('wf:markdown', editor.value);
   }, SAVE_DEBOUNCE);
+  scheduleServerDraftSave();   // localStorage 之外再存一份服务端草稿（P0-4）
+}
+
+// ============= 服务端草稿（P0-4） =============
+// localStorage 会因清缓存 / 换浏览器 / 换设备丢失，这里再存一份到服务端（local_data）。
+// 一律静默失败：草稿只是兜底，任何错误都不能打断编辑（计划 §2 P0-4 的落地要求）。
+function scheduleServerDraftSave() {
+  clearTimeout(draftPushTimer);
+  draftPushTimer = setTimeout(() => { pushServerDraft(); }, DRAFT_PUSH_DEBOUNCE);
+}
+
+function draftFingerprint(title, markdown) {
+  return `${title}\u0000${markdown}`;
+}
+
+async function pushServerDraft() {
+  const editor = document.getElementById('formatEditor');
+  if (!editor) return;
+  const titleEl = document.getElementById('formatTitle');
+  const title = titleEl ? titleEl.value : '';
+  const markdown = editor.value;
+  const fingerprint = draftFingerprint(title, markdown);
+  if (fingerprint === lastPushedDraft) return;   // 内容没变不发请求
+  try {
+    await localApi('mp-format/draft', { method: 'PUT', body: { title, markdown } });
+    lastPushedDraft = fingerprint;
+  } catch { /* 静默：服务端草稿失败不影响本地编辑 */ }
+}
+
+async function loadServerDraft(editor) {
+  try {
+    const draft = await localApi('mp-format/draft');
+    if (!draft || typeof draft.markdown !== 'string' || !draft.markdown.trim()) return;
+    if (editor.value.trim()) return;   // 用户已经动手了，不覆盖
+    editor.value = draft.markdown;
+    LS.set('wf:markdown', draft.markdown);
+    lastPushedDraft = draftFingerprint(draft.title || '', draft.markdown);
+    applyFormatTitle(draft.title || '');
+    updateWordCount();
+    doRender();
+  } catch { /* 静默：兜底失败不影响本地编辑 */ }
 }
 
 // 粘贴截图：拦截剪贴板中的图片文件 → dataURL 存内存表 → 插入 #img-N 占位符
@@ -651,6 +730,22 @@ function buildArticleHtml(markdown) {
   return engine.renderArticleSafe(resolvePlaceholderImages(markdown), tpl, currentTweaks);
 }
 
+// 复制前自检（P0-4）：正文长度 / 图片数量 → 一条「已复制，但要留意」的提示（**不阻断复制**）。
+// 降级状态仍走原有专门文案，不在这里重复。
+function describeCopyCheck(markdown) {
+  const parts = [];
+  const chars = markdown.replace(/\s/g, '').length;
+  if (chars > COPY_SELFCHECK_CHARS) {
+    parts.push(`正文约 ${chars} 字，公众号后台正文过长时可能被截断`);
+  }
+  const images = (resolvePlaceholderImages(markdown).match(/!\[[^\]]*\]\(/g) || []).length;
+  if (images > COPY_SELFCHECK_IMAGES) {
+    parts.push(`图片 ${images} 张，粘贴后请逐张确认是否转存成功`);
+  }
+  if (!parts.length) return '';
+  return `已复制，但有 ${parts.length} 项要留意：${parts.join('；')}`;
+}
+
 // 复制产物不过 DOMPurify：唯一去向是公众号编辑器粘贴板（按钮 tooltip 已提示）。
 // text/html 与 text/plain 都放同一份 HTML，微信编辑器取 text/html。
 export async function formatCopyHtml() {
@@ -668,7 +763,9 @@ export async function formatCopyHtml() {
     } else {
       legacyRichCopy(html);
     }
-    toast(
+    const notice = describeCopyCheck(editor.value);
+    if (notice) toast(notice, 'error');
+    else toast(
       result.degraded
         ? '内容过于复杂，已降级为纯文本复制（排版样式不可用）'
         : '排版 HTML 已复制，去公众号后台正文区粘贴即可',

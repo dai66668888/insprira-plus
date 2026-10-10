@@ -1,9 +1,10 @@
-// mp-format 路由测试（方案 §7 PR-2）：AI 一键排版的 401 边界、输入校验、LLM 失败映射与提示词契约
+// mp-format 路由测试（方案 §7 PR-2 + P0-4 服务端草稿）：AI 一键排版的 401 边界、输入校验、
+// LLM 失败映射与提示词契约；以及草稿 GET/PUT 的一致性与上限（D2 的 SQL 口径）。
 // _server.js 已屏蔽 LLM_API_KEY，因此登录后调用必然走「LLM 未配置」错误映射，无需真实模型
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { boot, close, req } = require('./_server');
-const { SYSTEM_PROMPT, MAX_INPUT_LENGTH, cleanAiMarkdown } = require('../lib/routes/mp-format');
+const { SYSTEM_PROMPT, MAX_INPUT_LENGTH, MAX_DRAFT_LENGTH, cleanAiMarkdown } = require('../lib/routes/mp-format');
 
 let started = false;
 test.before(async () => {
@@ -90,4 +91,52 @@ test('cleanAiMarkdown 只剥整体包裹围栏，内部代码块原样保留', (
   assert.equal(cleanAiMarkdown('  \n# 直出\n  '), '# 直出');
   assert.equal(cleanAiMarkdown(null), '');
   assert.equal(cleanAiMarkdown(''), '');
+});
+
+// ============= 服务端草稿（P0-4） =============
+test('draft 未登录返回 401（鉴权在 server.js 全局，先于路由）', async () => {
+  const put = await req('/api/_/mp-format/draft', { method: 'PUT', body: { markdown: '# 标题' } });
+  assert.equal(put.status, 401);
+  const get = await req('/api/_/mp-format/draft');
+  assert.equal(get.status, 401);
+});
+
+test('draft：PUT 后 GET 回读一致，并落到 local_data（D2 的 SQL 口径）', async () => {
+  const markdown = '# 标题\n\n正文段落。\n\n```js\nconsole.log(1);\n```\n\n![图](https://example.com/a.png)';
+  const put = await req('/api/_/mp-format/draft', {
+    method: 'PUT',
+    body: { title: '标题甲', markdown },
+    headers: { Cookie: authCookie },
+  });
+  assert.equal(put.status, 200);
+  assert.equal(put.json.data.length, markdown.length);
+  assert.match(put.json.data.title, /标题甲/);
+
+  const get = await req('/api/_/mp-format/draft', { headers: { Cookie: authCookie } });
+  assert.equal(get.status, 200);
+  assert.equal(get.json.data.markdown, markdown);
+  assert.equal(get.json.data.title, '标题甲');
+  assert.ok(get.json.data.updatedAt > 0, '应带 updatedAt 时间戳');
+
+  const { getLocalData } = require('../lib/local-data');
+  assert.equal(getLocalData('format-draft', 'default').markdown, markdown);
+});
+
+test('draft：markdown 缺失或非字符串返回 400（不落库）', async () => {
+  for (const body of [{}, { markdown: 123 }, { markdown: null }, { title: '只有标题' }]) {
+    const r = await req('/api/_/mp-format/draft', {
+      method: 'PUT', body, headers: { Cookie: authCookie },
+    });
+    assert.equal(r.status, 400);
+  }
+});
+
+test(`draft：超过 ${MAX_DRAFT_LENGTH} 字符返回 400 且报出上限`, async () => {
+  const r = await req('/api/_/mp-format/draft', {
+    method: 'PUT',
+    body: { markdown: '字'.repeat(MAX_DRAFT_LENGTH + 1) },
+    headers: { Cookie: authCookie },
+  });
+  assert.equal(r.status, 400);
+  assert.match(r.json.error, new RegExp(String(MAX_DRAFT_LENGTH)));
 });
