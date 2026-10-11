@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  createStreamState, absorbSseLine, feedSse, flushSse, toStreamMessage,
+  createStreamState, absorbSseLine, feedSse, flushSse, toStreamMessage, takeDelta,
 } = require('../lib/llm-stream');
 
 test('content 逐 chunk 累积，[DONE] 结束', () => {
@@ -77,8 +77,35 @@ test('absorbSseLine 单行处理与空状态安全', () => {
   const s = createStreamState();
   absorbSseLine(s, '');
   absorbSseLine(s, null);
+  absorbSseLine(s, ':');
   absorbSseLine(s, 'data:');
   assert.equal(s.content, '');
   absorbSseLine(s, 'data: {"choices":[{"delta":{"content":"a"}}]}');
   assert.equal(s.content, 'a');
+});
+
+test('takeDelta 只给新增片段，游标可连续推进（P1-1 流式透传）', () => {
+  const s = createStreamState();
+  let cursor = { content: 0, reasoning: 0 };
+  feedSse(s, 'data: {"choices":[{"delta":{"content":"第一段"}}]}\n');
+  let step = takeDelta(s, cursor);
+  assert.equal(step.delta.content, '第一段');
+  cursor = step.cursor;
+  feedSse(s, 'data: {"choices":[{"delta":{"content":"第二段"}}]}\n');
+  step = takeDelta(s, cursor);
+  assert.equal(step.delta.content, '第二段', '第二次只应给出新增部分，不重复推全量');
+  assert.equal(step.delta.reasoning, '');
+  cursor = step.cursor;
+  // 没有新内容时给出空片段：调用方据此跳过空帧
+  step = takeDelta(s, cursor);
+  assert.deepEqual(step.delta, { content: '', reasoning: '' });
+  assert.deepEqual(step.cursor, { content: 6, reasoning: 0 });
+});
+
+test('takeDelta 把 reasoning 与 content 分开，缺省游标从 0 起算', () => {
+  const s = createStreamState();
+  feedSse(s, 'data: {"choices":[{"delta":{"reasoning_content":"先想"}}]}\n');
+  feedSse(s, 'data: {"choices":[{"delta":{"content":"再写"}}]}\n');
+  const { delta } = takeDelta(s);
+  assert.deepEqual(delta, { content: '再写', reasoning: '先想' });
 });

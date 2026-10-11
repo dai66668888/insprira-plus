@@ -1,8 +1,9 @@
-import { api, localApi } from '../api.js';
+import { api, localApi, isAbortError } from '../api.js';
 import { LS, currentPage, getSortedTrackers, setTrackerOrder } from '../state.js';
-import { esc, fmt, proxyImage, copyToClipboard, renderMarkdown, genUUID } from '../utils.js';
+import { esc, fmt, proxyImage, copyToClipboard, renderMarkdown, genUUID, countObservingWorks } from '../utils.js';
 import { platName } from '../config.js';
-import { toast } from '../components.js';
+import { toast, busyState } from '../components.js';
+import { pollJob, jobProgressText } from '../jobs.js';
 import { initIcons } from '../icons.js';
 import { adaptDY, adaptXHS, adaptGZH } from '../core/adapters.js';
 import { renderFeedAndHistory } from './dashboard.js';
@@ -415,12 +416,38 @@ export function showTrackerWorksEmpty(t, errorMsg) {
   initIcons(modal);
 }
 
-export async function syncTrackerWorks(id) {
+// P1-2 作业化辅助：进度条落点 + 「提交即返回 jobId」的封装。
+// 落点优先级：调用按钮所在容器（还在页面上时）→ 打开的模态（否则被遮住看不见）→ 账号列表顶部。
+function jobHost(el) {
+  const parent = el?.parentElement;
+  if (parent && parent.isConnected) return parent;
+  const modalBody = document.querySelector('.modal-mask .modal');
+  if (modalBody) return modalBody;
+  return document.getElementById('tracker-list');
+}
+
+function jobBefore(el) {
+  return el?.parentElement?.isConnected ? el : null;
+}
+
+// 发起作业并轮询到终态，返回 job.result —— 与旧的同步/诊断接口返回值完全一致，
+// 因此调用方的结果处理逻辑一行都不用改；error 终态与超时都会抛错，交给调用方 toast。
+async function runTrackerJob(path, busy, abortKey) {
+  const { jobId, reused } = await localApi(path, { method: 'POST', body: {}, abortKey });
+  if (reused) busy?.setStage('已有任务在跑，接管它的进度…');
+  const job = await pollJob(() => localApi(`jobs/${jobId}`, { abortKey }), {
+    onUpdate: latest => busy?.setStage(jobProgressText(latest)),
+  });
+  return job.result || {};
+}
+
+export async function syncTrackerWorks(id, el) {
   const t = LS.get('trackers', []).find(x => x.id === id);
   if (!t) return;
-  toast('正在同步 ' + t.name + ' 的作品…', 'info');
+  const abortKey = `tracker-sync-${id}`;
+  const busy = busyState(jobHost(el), { label: `正在同步 ${t.name} 的作品…`, abortKey, before: jobBefore(el) });
   try {
-    const result = await localApi(`trackers/${encodeURIComponent(id)}/sync`, { method: 'POST', body: {} });
+    const result = await runTrackerJob(`trackers/${encodeURIComponent(id)}/sync-jobs`, busy, abortKey);
     if (result.tracker) {
       LS.set('trackers', LS.get('trackers', []).map(item => item.id === id ? { ...item, ...result.tracker } : item));
     }
@@ -437,7 +464,10 @@ export async function syncTrackerWorks(id) {
       if (currentPage === 'tracker') renderTracker();
     }
   } catch (e) {
-    toast('同步失败：' + e.message, 'error');
+    if (isAbortError(e)) toast('已停止等待（服务端仍在后台同步）', 'info');
+    else toast('同步失败：' + e.message, 'error');
+  } finally {
+    busy.stop();
   }
 }
 
@@ -449,10 +479,15 @@ export function showTrackerWorksModal(t, works) {
   });
   const modal = document.createElement('div');
   modal.className = 'modal-mask';
+  // P1-4 I2：发布未满 48h 的作品标「观察中」——它们的低读数不能算内容差（数据还没成熟）
+  const observing = countObservingWorks(sorted);
   modal.innerHTML = `
     <div class="modal flex flex-col" style="max-width:680px;max-height:80vh" data-action="stopPropagation">
       <div class="flex items-center justify-between px-6 py-3 border-b border-white/5 flex-shrink-0 sticky top-0 z-10" style="background:var(--bg-2)">
-        <h3 class="font-semibold text-base">${esc(t.name)} 的作品 · ${sorted.length} 篇</h3>
+        <div>
+          <h3 class="font-semibold text-base">${esc(t.name)} 的作品 · ${sorted.length} 篇</h3>
+          ${observing ? `<div class="text-[11px] mt-0.5" style="color:#d97706" title="发布未满 48 小时：数据未成熟，暂不评价">观察中 ${observing} 篇（未满 48h，暂不下结论）</div>` : ''}
+        </div>
         <div class="flex items-center gap-1">
           <button class="btn btn-ghost py-1 px-2" data-action="syncTrackerWorksInModal" data-id="${t.id}" data-plat="${t.plat}" title="刷新作品"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i></button>
           <button class="btn btn-ghost py-1 px-2" data-action="closeModal"><i data-lucide="x" class="w-4 h-4"></i></button>
@@ -490,9 +525,10 @@ function trackerTimeValue(value) {
 }
 
 export async function syncTrackerWorksInModal(id, plat) {
-  toast('正在同步作品…', 'info');
+  const abortKey = `tracker-sync-${id}`;
+  const busy = busyState(jobHost(null), { label: '正在同步作品…', abortKey });
   try {
-    const result = await localApi(`trackers/${encodeURIComponent(id)}/sync`, { method: 'POST' });
+    const result = await runTrackerJob(`trackers/${encodeURIComponent(id)}/sync-jobs`, busy, abortKey);
     if (result.tracker) {
       LS.set('trackers', LS.get('trackers', []).map(item => item.id === id ? { ...item, ...result.tracker } : item));
     }
@@ -500,7 +536,10 @@ export async function syncTrackerWorksInModal(id, plat) {
     document.querySelector('.modal-mask')?.remove();
     if (currentPage === 'tracker') renderTracker();
   } catch (e) {
-    toast('同步失败：' + e.message, 'error');
+    if (isAbortError(e)) toast('已停止等待（服务端仍在后台同步）', 'info');
+    else toast('同步失败：' + e.message, 'error');
+  } finally {
+    busy.stop();
   }
 }
 
@@ -545,16 +584,22 @@ export function showDiagnosisEmpty(tracker, errorMsg) {
 export async function runDiagnosis(id, tracker) {
   if (!tracker) tracker = LS.get('trackers', []).find(item => item.id === id);
   if (!tracker) return;
+  // P1-2 作业化：诊断要逐篇过 LLM，是最慢的一条链；提交即返回，进度靠轮询
+  const abortKey = `tracker-diagnose-${id}`;
+  const busy = busyState(jobHost(null), { label: `正在运行 ${tracker.name} 的官方诊断 Skill…`, abortKey });
   toast(`正在运行 ${tracker.name} 的官方诊断 Skill…`, 'info');
   try {
-    const result = await localApi(`trackers/${encodeURIComponent(id)}/diagnose`, { method: 'POST', body: {} });
+    const result = await runTrackerJob(`trackers/${encodeURIComponent(id)}/diagnose-jobs`, busy, abortKey);
     if (result.tracker) {
       LS.set('trackers', LS.get('trackers', []).map(item => item.id === id ? result.tracker : item));
       if (currentPage === 'tracker') renderTracker();
     }
     showDiagnosisModal(result.report, false, id);
   } catch (e) {
-    toast('诊断失败：' + e.message, 'error');
+    if (isAbortError(e)) toast('已停止等待（服务端仍在后台诊断，完成后重开诊断面板即可看到）', 'info');
+    else toast('诊断失败：' + e.message, 'error');
+  } finally {
+    busy.stop();
   }
 }
 

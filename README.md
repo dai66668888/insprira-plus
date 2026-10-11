@@ -11,6 +11,7 @@
 - **账号追踪**：分组订阅、作品同步、公众号 / 抖音 / 小红书诊断、趋势图表（粉丝 / 红狐指数 / 评分 / 作品数）
 - **知识库**：Obsidian / Notion 双源接入 + WeRss（we-mp-rss）公众号文章同步；成稿可一键导出
 - **内容创作**：多平台改写（小红书 / 公众号 / 知乎 / 抖音 / 视频号 / 快手 / B站）、RedFox `gpt-image-2` 封面生成、违禁词检测
+- **公众号排版与草稿箱**：Markdown → 微信内联样式 HTML（本地预览 + 一键复制），也可把排版结果直接**存进公众号草稿箱** —— 正文图片自动转存到微信图床并校验、封面自动取图转成永久素材；**只创建草稿、不群发**（需配 `MP_APP_ID` / `MP_APP_SECRET` 并把出口 IP 加入白名单）
 - **本地 Agent**：Codex / Claude Code / Kimi / OpenClaw / Hermes 子进程集成
 - **CRON 调度**：内置每日热榜快照、缓存清理、WeRss 同步、账号追踪刷新等任务；支持自定义、拖拽排序
 - **Docker 部署**：Dockerfile + Docker Compose，支持 linux/amd64 与 linux/arm64
@@ -53,6 +54,8 @@ npm start      # 一次性启动
 ## 配置
 
 见 [`.env.example`](.env.example)。
+
+**公众号草稿箱同步**额外需要：`MP_APP_ID`、`MP_APP_SECRET`（公众平台 → 设置与开发 → 基本配置）、一个**认证号**（草稿箱接口权限），并把本机**出口 IP** 加进同一页的 **IP 白名单**；可选 `MP_ACCOUNT_NAME` 用来指明该 AppID 对应哪个「我的账号」（官方 datacube 数据同步也用这三个变量）。配好后排版页会显示公众号状态，旁边的「IP 体检」按钮可直接确认凭据与白名单是否正常（报 `40164` 时它会直接把被拒 IP 说出来）。排错与合规口径见 [`docs/mp-draft-troubleshooting.md`](docs/mp-draft-troubleshooting.md)，第三方组件与外部接口声明见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
 
 ## License
 

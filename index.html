@@ -791,6 +791,9 @@
       <button class="btn btn-ghost py-1.5 text-xs text-red-400" data-action="formatClearDoc"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i>清空</button>
       <button class="btn btn-primary py-1.5 text-xs" data-action="formatAiLayout" id="formatAiBtn" title="AI 只优化排版结构，不改写内容（需在设置页配置 LLM）"><i data-lucide="sparkles" class="w-3.5 h-3.5"></i>AI 一键排版</button>
       <button class="btn btn-primary py-1.5 text-xs" data-action="formatCopyHtml" title="复制带内联样式的 HTML（产物未经消毒，仅用于粘贴到公众号编辑器）"><i data-lucide="copy" class="w-3.5 h-3.5"></i>复制排版</button>
+      <button class="btn btn-ghost py-1.5 text-xs" data-action="syncDraftToMp" id="formatMpBtn" title="把当前排版结果存进公众号草稿箱（需在 .env 配置 MP_APP_ID / MP_APP_SECRET，并把本机出口 IP 加进 IP 白名单）"><i data-lucide="send" class="w-3.5 h-3.5"></i>同步到草稿箱</button>
+      <button class="btn btn-ghost py-1.5 text-xs" data-action="diagnoseMpIp" title="打一次微信接口，确认凭据与 IP 白名单是否正常"><i data-lucide="activity" class="w-3.5 h-3.5"></i>IP 体检</button>
+      <span id="formatMpStatus" class="text-[11px] text-gray-500"></span>
     </div>
   </div>
 

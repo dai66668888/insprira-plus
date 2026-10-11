@@ -3,6 +3,7 @@ import { toggleCron } from './settings.js';
 import { esc, fmt } from '../utils.js';
 import { platName, platColor, platCodeByName } from '../config.js';
 import { toast, skeleton, rankBadge, busyState } from '../components.js';
+import { pollJob, jobProgressText } from '../jobs.js';
 import { initIcons } from '../icons.js';
 import { adaptDY, adaptXHS, adaptGZH, adaptAIGZH, adaptAIBili, adaptAIXHS, adaptAiFeed } from '../core/adapters.js';
 import { renderListItem } from '../core/renderers.js';
@@ -149,14 +150,24 @@ async function renderHotTabs() {
   ).join('');
 }
 
-export async function syncHotKeywords() {
-  toast('正在刷新全网热点…', 'info');
+export async function syncHotKeywords(el) {
+  // P1-2 作业化：请求立刻返回 jobId，进度靠轮询，任何 HTTP 请求都不再挂几十秒（验收 G1）。
+  // 等待条复用 P0-1 的 busyState（状态点 + 实时计时 + 取消），取消只停浏览器侧等待，
+  // 服务端作业会继续跑完并落库 —— 所以文案不能说「已取消刷新」。
+  const busy = busyState(el?.parentElement || null, { label: '正在刷新全网热点…', abortKey: 'hot-sync', before: el });
   try {
-    await localApi('hot/keywords/sync', { method: 'POST', body: {} });
-    toast('热点刷新成功', 'success');
-    renderHotlist();
+    const { jobId, reused } = await localApi('hot/sync/jobs', { method: 'POST', body: {}, abortKey: 'hot-sync' });
+    if (reused) busy.setStage('已有刷新任务在跑，接管它的进度…');
+    const job = await pollJob(() => localApi(`jobs/${jobId}`, { abortKey: 'hot-sync' }), {
+      onUpdate: latest => busy.setStage(jobProgressText(latest)),
+    });
+    const failed = job.failedPlatforms?.length || 0;
+    toast(job.message || '热点刷新成功', failed ? 'info' : 'success');
   } catch (e) {
-    toast('刷新失败：' + e.message, 'error');
+    if (isAbortError(e)) toast('已停止等待（服务端仍在后台刷新，稍后重开页面即可看到结果）', 'info');
+    else toast('刷新失败：' + e.message, 'error');
+  } finally {
+    busy.stop();
     renderHotlist();
   }
 }
@@ -248,16 +259,24 @@ export async function closeHotTab(cronId, tab) {
   } catch (e) { toast('删除失败：' + e.message, 'error'); }
 }
 
-export async function syncHotTab(tab) {
+export async function syncHotTab(tab, el) {
   const platforms = await loadHotPlatforms();
   const tabNames = Object.fromEntries(platforms.map(p => [p.key, p.label]));
-  toast(`正在刷新 ${tabNames[tab] || tab}…`, 'info');
+  const label = tabNames[tab] || tab;
+  // P1-2 作业化：单平台刷新同样走作业（昨日榜要拉完整批次，同样会超过 30s）
+  const busy = busyState(el?.parentElement || null, { label: `正在刷新 ${label}…`, abortKey: 'hot-tab-sync', before: el });
   try {
-    await localApi('hot/list/sync?platform=' + tab, { method: 'POST', body: {} });
-    toast(`${tabNames[tab] || tab} 刷新成功`, 'success');
-    renderHotTab(tab);
+    const { jobId, reused } = await localApi('hot/sync/jobs?platform=' + encodeURIComponent(tab), { method: 'POST', body: {}, abortKey: 'hot-tab-sync' });
+    if (reused) busy.setStage(`已有 ${label} 刷新任务在跑，接管它的进度…`);
+    const job = await pollJob(() => localApi(`jobs/${jobId}`, { abortKey: 'hot-tab-sync' }), {
+      onUpdate: latest => busy.setStage(jobProgressText(latest)),
+    });
+    toast(job.failedPlatforms?.length ? `${label} 刷新完成（有平台失败，详见页面提示）` : `${label} 刷新成功`, job.failedPlatforms?.length ? 'info' : 'success');
   } catch (e) {
-    toast('刷新失败：' + e.message, 'error');
+    if (isAbortError(e)) toast('已停止等待（服务端仍在后台刷新）', 'info');
+    else toast('刷新失败：' + e.message, 'error');
+  } finally {
+    busy.stop();
     renderHotTab(tab);
   }
 }

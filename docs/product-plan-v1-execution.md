@@ -48,7 +48,7 @@
 | 门禁 | 命令 | 说明 |
 |---|---|---|
 | 语法 | `npm run check` | 后端 `server.js` 语法 |
-| 全量测试 | `npm test` | `node --test`，当前 **198 例**（各 `test/*.test.js` 的 `^test(` 计数），**本轮不得减少** |
+| 全量测试 | `npm test` | `node --test`，当前 **212 例**（各 `test/*.test.js` 的 `^test(` 计数），**本轮不得减少** |
 | 样式 | `npm run build` | 仅当新增/修改了 Tailwind class |
 | 定向测试 | `node --test test/<file>.test.js` | 改哪个模块跑哪个 |
 
@@ -291,36 +291,46 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 
 ## 3. P1 任务卡（可延至下一迭代）
 
-### P1-1 服务端 SSE 透传到前端　`[ ]`　工作量 L
+### P1-1 服务端 SSE 透传到前端　`[x]` 代码完成（F1-F4 待验收）　工作量 L
 
-- 落点：`lib/rewrite.js`（暴露 `onDelta`，复用 `lib/llm.js` 已有的上游 SSE 聚合）、`lib/routes/misc.js`（新增 `/api/_/rewrite/stream`，`res.write` + `text/event-stream`）、`js/api.js`（新增流式读取）、`js/pages/creator.js`（增量渲染，`busyState` 升级为流式进度）。
-- 步骤：- [ ] 1. 后端流式路由（先只支持单条 LLM 链，tools 路径仍非流式）；- [ ] 2. 前端 `EventSource`/`fetch` 流读取；- [ ] 3. 增量渲染 + 错误/中断处理；- [ ] 4. 补 `test/llm-stream.test.js` 相邻用例 + 路由级用例。
-- 验收：F1（TTFB ≥90% ≤30s）、F2（文本长度单调增长 ≥5 次）、F3（取消后无新增 `llm_usage`、日志无未捕获异常）、F4（`llm-stream` 8 + `routes` 26 例全绿）。
-- 风险：SSE 在反向代理/Docker 下的缓冲 → 需 `X-Accel-Buffering: no` 与心跳；回滚 = 保留原整包接口，前端切回。
+- 落点：`lib/rewrite.js`（暴露 `onDelta`/`onStage`/`signal` 钩子）、`lib/llm.js`（增量游标 + 外部 signal 中断 + `onAttempt`）、**新增 `lib/sse.js`**（帧编码 / 响应头 / 心跳）与 **`js/stream.js`**（前端帧解析 + 局部 JSON 字段抽取）、`lib/routes/misc.js`（新增 `/api/_/rewrite/stream`）、`js/api.js`（新增 `localApiStream`）、`js/pages/creator.js`（增量渲染 + 回落 + 快照还原）。
+- 步骤：- [x] 1. 后端流式路由（非工具路径真流式；**tools 路径仍非流式**，靠 `done` 帧一次给全）；- [x] 2. 前端 `fetch` + `ReadableStream` 流读取（`localApiStream`，与 `localApi` 共用 abortKey）；- [x] 3. 增量渲染 + 错误/中断处理（`error`/`cancelled`/`attempt` 帧、取消即还原快照、**只在未收到任何增量时**才回落整包接口）；- [x] 4. 补 `test/sse-stream.test.js` 10 例（帧编解码/字段抽取）+ `test/llm-stream.test.js` +2 例（`takeDelta`）+ `test/rewrite-stream.routes.test.js` 2 例（路由级）。
+- 验收：F1（TTFB ≥90% ≤30s）、F2（文本长度单调增长 ≥5 次）、F3（取消后无新增 `llm_usage`、日志无未捕获异常）、F4（流式相关套件与全量 **212** 例全绿）。
+- 风险：SSE 在反向代理/Docker 下的缓冲 → 已加 `X-Accel-Buffering: no` + 15s 心跳注释帧；回滚 = 整包接口原样保留，前端切回 `localApi('rewrite')` 即可。
+- 交付说明：本轮把**可离线自证的部分全部放进纯模块**（`lib/sse.js`、`lib/llm-stream.js` 的 `takeDelta`、`js/stream.js`），`lib/llm.js` / `lib/rewrite.js` / 路由只做薄接线；F1/F2/F3 需要真实 LLM 与浏览器，留给容器与人工验收。
 
-### P1-2 长任务作业化（热点刷新 / 账号同步 / 诊断）　`[ ]`　工作量 M
+### P1-2 长任务作业化（热点刷新 / 账号同步 / 诊断）　`[x]` 代码完成（G1/G2 待验收）　工作量 M
 
-- 落点：`lib/routes/hot.js:35-39`（改「提交即返回 jobId」）、`lib/routes/trackers.js`、`lib/routes/accounts.js`；job 模式与 UI 照抄 `lib/routes/mp-whitelist.js:31` + `js/pages/dashboard.js:533-560`；进度落 `hot_batches.status/error/item_count`（`lib/db.js:152-165`）。
-- 验收：G1（点「刷新热点」无任何 HTTP 请求 >30s）、G2（页面失败平台与 `SELECT platform,status,item_count,error FROM hot_batches …` 一致）。
-- 风险：job 状态需过期清理（避免 `local_data` 无限增长）→ 复用 `setLocalData(..., expiresAt)`。
+- 落点：新增 `lib/jobs.js`（纯内存作业存储：终态保留 30 分钟 + 上限 50 条 + 时钟/ID 可注入）、新增 `lib/routes/jobs.js`（通用 `GET /api/_/jobs/:id`、`GET /api/_/jobs`）、`lib/routes/hot.js`（新增 `POST /api/_/hot/sync/jobs?platform=`）、`lib/routes/trackers.js`（新增 `:id/sync-jobs`、`:id/diagnose-jobs`）、`server.js`（建 `jobStore` 并注入 hot / trackers / jobs 三组）、新增 `js/jobs.js`（`pollJob`/`jobProgressText`，取数函数由调用方注入 → 可离线单测）、`js/pages/hotlist.js` 与 `js/pages/tracker.js`（4 个慢动作改为提交 + 轮询，进度复用 P0-1 的 `busyState` 等待条）。
+- 步骤：- [x] 1. 作业存储 + 通用轮询接口；- [x] 2. 热点刷新（全网 / 单平台）作业化；- [x] 3. 账号同步、账号诊断作业化；- [x] 4. 前端 4 处接入（含取消语义与新文案对齐）。
+- 验收：G1（点「刷新热点」无任何 HTTP 请求 >30s）、G2（页面失败平台与 `SELECT platform,status,item_count,error FROM hot_batches …` 一致 —— 作业的逐平台结果**直接读回 `hot_batches`**，一致性由结构保证，不做二次统计）。
+- 风险：job 状态过期清理 → 已实现（终态保留 30 分钟、上限 50 条兜底淘汰、运行中永不清理）；**不落库**，进程重启即丢（作业本就是「这次点击」的上下文）。
+- 交付说明：`lib/jobs.js` 与 `js/jobs.js` 全是纯逻辑（合计 17 例离线单测），路由层只做接线，另加 5 例路由级用例（容器内跑）。**本轮范围外**（仍是同步等待，已确认前端只剩这三处）：`POST /api/_/my-accounts/:id/sync-mp-official`（官方 datacube T+1 同步）、`my-accounts/:id/analyze-works`（逐篇 LLM 分析）、`wersss/sync` —— 都不在计划点名的三项之列，留待 P1-3 一并作业化。
 
-### P1-3 公众号草稿箱同步（方案 PR-3）　`[ ]`　工作量 L
+### P1-3 公众号草稿箱同步（方案 PR-3）　`[x]` 代码完成（H1/H3 单测覆盖，H2 待真号验收）　工作量 L
 
-- 前置：`MP_APP_ID`/`MP_APP_SECRET` + 认证号 + IP 白名单；`lib/wechat-official.js:174` 导出面扩展（`getMpConfig/getAccessToken/mpError`）。
-- 落点：新增 `lib/mp-publisher.js`（图片转存 + 封面 + `draft/add`）、`lib/routes/mp-format.js` 加 `sync-draft`/`config`/`ip-diagnostic`、README/`THIRD_PARTY_NOTICES.md` 合规件。
-- 验收：H1（未配置 400 + 引导）、H2（草稿图片 100% `mmbiz.qpic.cn`）、H3（无 `MP_APP_SECRET` 泄露）。
-- 依赖顺序：**必须在 P0-4 之后**（先把素材进排版的成本降下来）。
+- 落点：新增 `lib/mp-errors.js`（微信错误归类：`mpError` 带 `errcode`/40164 被拒 IP、`classifyMpError` 给可执行 hint）、新增 `lib/mp-publisher.js`（能力：图片收集/改写/托管校验、dataURL 解析、`multipart` 组装、草稿载荷组装、配置脱敏；`make()` 里的 `uploadContentImage`→`media/uploadimg`、`uploadThumbMaterial`→`material/add_material`、`addDraft`→`draft/add`）、`lib/routes/mp-format.js` 新增 `config`/`ip-diagnostic`/`sync-draft`、`lib/wechat-official.js`（`mpError` 改为复用 `lib/mp-errors.js` 并转出，导出面满足卡片要求）、`server.js`（建 `mpPublisher` 复用 `mpOfficial` 的凭据与 token 缓存）、`js/pages/format.js`（同步按钮 + 配置状态 + IP 体检）、`index.html`、`js/app.js`、新建 `THIRD_PARTY_NOTICES.md`。
+- 步骤：- [x] 1. 错误归类与发布器纯逻辑层；- [x] 2. 转存/封面/建草稿三个 HTTP 接口；- [x] 3. `config`/`ip-diagnostic`/`sync-draft` 三个路由（H1 未配置 400 + 引导）；- [x] 4. 排版页接线（未配置即禁用按钮并给引导）；- [x] 5. 合规件与文档。
+- 验收：H1（未配置 → 400 + 可执行引导，单测覆盖 + IP 体检接口）、H2（草稿正文图片 100% `mmbiz.qpic.cn`：转存后**再校验一遍**，仍有非图床图片就拒绝建草稿，单测覆盖）、H3（`GET config` 只回报「配没配」，响应体不含 `MP_APP_SECRET` 任何片段，单测 + 路由级用例覆盖）；字段上限按官方 `draft/add` 文档逐条核对（标题 ≤32 字、作者 ≤16 字、摘要 ≤120 字、正文 <2 万字符，见 §8.1-24）并写进单测钉住。
+- 风险：① 真实 `draft/add` 需认证号 + IP 白名单，**本地/容器都跑不了真机**（单测用 fake fetch 覆盖到「请求体字节与载荷」一层）；② 本地截图以 dataURL 进正文，受 `lib/http.js` 的 `MAX_BODY_SIZE = 2MB` 约束（截图多/大时改用外链图或先复制排版）；③ 草稿接口需认证号权限（53500 已归类给出提示）。
+- 交付说明：**只创建草稿，不群发**（不碰 `message/masssend`，避免误发与合规风险）；已托管的 mmbiz 图不重复上传（`hostedSkippedCount`）；配置文件只读 `MP_APP_ID`/`MP_APP_SECRET`/`MP_ACCOUNT_NAME`，不新增任何写盘或凭证落库路径。**本轮范围外**：P1-2 末尾留下的三个同步接口（`sync-mp-official`、`analyze-works`、`wersss/sync`）本次**未**一并作业化 —— 草稿箱同步是一次性 HTTP 调用（几十秒内），不属「长任务」范畴，强行作业化只会多一层轮询；如实记在此处，留给后续按需处理。
+- 依赖顺序：**必须在 P0-4 之后**（先把素材进排版的成本降下来）—— 已满足。
 
-### P1-4 作品数据可信度（没涨 vs 没同步 / 观察中篇目）　`[ ]`　工作量 S
+### P1-4 作品数据可信度（没涨 vs 没同步 / 观察中篇目）　`[x]` 代码完成（I1/I2 待人工验收）　工作量 S
 
-- 落点：`lib/work-stats.js:23-46`（相同指标也落一条同步事件，或加 `unchanged` 标记列，用 `ensureColumn`）、`js/pages/tracker.js`、`js/pages/dashboard.js`（展示 `observing` 篇数，数据来自 `lib/article-analysis.js:290,395`）。
-- 验收：I1（连续 2 天同步不变数据 → `work_stats_history` ≥2 个点且可区分「值未变」）、I2（显示「N 篇观察中」）、I3（13+4+9 例全绿）。
+- 落点：新增 `lib/work-stats-plan.js`（纯函数：`metricsEqual`/`planStatWrite`/`summarizeStatWrites` + `UNCHANGED_MIN_GAP_MS`）、`lib/db.js`（`ensureColumn('work_stats_history','unchanged','INTEGER NOT NULL DEFAULT 0')`）、`lib/work-stats.js`（`recordWorkStats` 改为「没变也留痕」+ 事务批量写 + 结构化摘要；`getGrowthCurve` 带出 `unchanged`）、`js/utils.js`（`OBSERVE_WINDOW_MS`/`workPublishTs`/`countObservingWorks`）、`js/pages/dashboard.js`（账号卡片常驻「观察中 N 篇 · 未满 48h」）、`js/pages/tracker.js`（作品弹窗标题栏显示「观察中 N 篇」）。
+- 步骤：- [x] 1. `unchanged` 标记列 + 落库决策纯函数；- [x] 2. 同步链改「没变也留痕」并限流；- [x] 3. 观察中篇数上屏（账号卡片 + 作品弹窗）；- [x] 4. 单测（纯函数 9 例 + 前端 2 例 + 库路径 I1 用例）。
+- 验收：I1（连续 2 天同步不变数据 → `work_stats_history` ≥2 个点且可区分「值未变」：第 1 点 `unchanged=0`、第 2 点 `unchanged=1`，单测钉住）、I2（显示「N 篇观察中」：账号卡片常驻 + 作品弹窗）、I3（`article-analysis` 13 + `work-stats` 5（原 4 + 新增 I1 用例）+ `dashboard-overview` 9 例全绿，需容器内跑）。
+- 风险：① 高频同步会刷噪声 → 已用 `UNCHANGED_MIN_GAP_MS = 1 小时` 限流（数据真变了永不受限）；② 老库靠 `ensureColumn` 平滑升级（新列默认 0）；③ 仪表盘的「观察中」是**会话级内存缓存**（点过「分析文章」才出现），刻意不落库、避免为展示引入新表。
+- 交付说明：`recordWorkStats` 返回值由「数字」改为 `{ inserted, changed, unchanged, throttled, skipped }` —— 4 个调用点（tracker 同步 / 插件上报 / 官方 datacube / XHS 拉取）本来就忽略返回值，只有单测断言过旧数字，已同步改写。不新增表、不删列、不改历史点语义（`getGrowthCurve` 只是多带一列）。
 
-### P1-5 周行动项关联化（可跳转）　`[ ]`　工作量 S
+### P1-5 周行动项关联化（可跳转）　`[x]` 代码完成（J1/J2/J3 待人工验收）　工作量 S
 
-- 落点：`lib/db.js:127-135` + `ensureColumn`（`account_id`/`work_id`）、`lib/dashboard-overview.js:214-296`（让 LLM 输出带锚点）、`js/pages/dashboard.js:75-79`（点击跳转）。
-- 验收：J1（≥80% 行动项带 `account_id`）、J2（1 次点击到 tracker/detail）、J3（已完成行动项不原样重复）。
-- 依赖：P1-4（锚点数据先可信）。
+- 落点：新增 `lib/weekly-actions.js`（纯函数：`normalizeActionText`/`normalizeActionAnchors`/`actionAnchorRatio`/`dedupeAgainstHistory`）、`lib/db.js`（`ensureColumn('weekly_actions','account_id'|'work_id')`）、`lib/dashboard-overview.js`（`listWeekActions` 带出锚点；prompt 的【各账号】补 `账号id=`、`actions` 改为 `[{text,accountId,workId}]`；生成后校验回填 + 去重 + 落库）、`js/pages/dashboard.js`（带锚点行动项渲染成可点击 + 卡片头显示「已关联 N/M」）、`js/app.js`（注册 `gotoAction`）。
+- 步骤：- [x] 1. `weekly_actions` 增 `account_id`/`work_id`；- [x] 2. LLM 输出带锚点 + 代码校验回填（编造的 id 一律丢）；- [x] 3. 一跳到位（作品锚点 → 作品详情；账号锚点 → 账号追踪 + 直接打开该账号作品列表）；- [x] 4. J3 去重从 prompt 请求变成代码约束；- [x] 5. 单测（纯函数 10 例 + 集成 1 例）。
+- 验收：J1（≥80% 行动项带 `account_id`：prompt 里给了 `账号id`，生成后按 id 精确匹配/按账号名回填，编造 id 丢锚点；比例由 `actionAnchor` 返回并显示在卡片头「已关联 3/4」）、J2（1 次点击到 tracker/detail：`gotoAction` 按锚点分级跳转）、J3（已完成行动项不原样重复：`dedupeAgainstHistory` 以「去空白去标点」的归一文本对比上周 `done` 项，命中即丢弃并在返回值里报 `droppedDuplicates`）。
+- 风险：① 模型可能全都不给锚点 → J1 不达标时**不假装**：`actionAnchorRatio` 空列表 ratio 记 0，卡片头显示真实比例，无锚点项照旧纯文本渲染（建议不丢）；② 去重只拦「原样重复」，「换汤不换药」仍可能漏过（prompt 已要求换打法，属可接受残留）；③ 老数据 `account_id` 为 null → 前端按「无锚点」渲染，不会跳错页。
+- 交付说明：`summary` 增加 `actionItems`（带锚点）与 `actionAnchor`，`actions` 仍保留纯文本数组以兼容旧渲染/缓存；`generateSummary` 返回值增加 `actionAnchor`/`droppedDuplicates`（路由原样透传）。不新增表，只加两列。
 
 ---
 
@@ -435,17 +445,17 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 | P0-3 趋势卡可信化 | `[x]` 代码完成，**C1-C3 已实测通过**，C4 待人工验收 | `e5d078c` | C1-C4 | 容器内（Docker，已装 `better-sqlite3`）实测：`test/hot-trends.test.js` 3/3（二次分析不触达 LLM = C2、窗口决定回溯深度 = C1、批次完整度与库中 `json_extract` 一致 = C3）+ `test/hot-window.test.js` 3/3；宿主侧 7 个改动文件语法门禁通过 | LLM 走桩注入以免依赖密钥（§8.1-7）；窗口归一化抽成纯函数（§8.1-8） |
 | P0-4 排版闭环 | `[x]` 代码完成 + **D4 27 例全绿**，D1-D3 待人工验收 | 本轮工作树 | D1-D4 | 代码级：D4 的 27 例（`markdown-guard` 8 + `frontend-utils-render` 4 + `wechat-format-kernel` 15）宿主实测全绿 + 6 个改动文件语法门禁通过；新增 4 例路由用例（草稿 PUT→GET 一致、落 `local_data`、markdown 非字符串 400、超长 400、未登录 401）需 DB 环境执行；D1/D2/D3 的 UI 路径需合进 main 后在浏览器验收 | 直达草稿只在本次跳转生效、不持久化（§8.1-12）；草稿 PUT 只回执元信息（§8.1-13）；新增 `#formatTitle` 输入框（§8.1-14） |
 | P0-5 用量与杠杆 | `[x]` 代码完成 + **新增 8 例单测全绿**，E1-E5 待验收 | 本轮工作树 | E1-E5 | 代码级：`test/env-validation.test.js` 8/8（枚举/整数/上下界/`0=不限制`/非法值不落盘/秘密键脱敏）+ 6 个改动文件语法门禁通过；E1/E2/E5 需 DB（容器内对照 `api_usage` 聚合与 `llm_usage` 行数），E3/E4 需在设置页改 `.env` 后实测 | 白名单新增 10 键；`LLM_MAX_TOKENS` 需豁免秘密键正则（§8.1-15）；`/api/_/stats` 无 `data` 包装（§8.1-16）；misc 组原先漏注入 `logAction`（§8.1-17） |
-| P1-1 SSE 流式 | `[ ]` | — | F1-F4 | — | 依赖 Batch 1 |
-| P1-2 长任务作业化 | `[ ]` | — | G1-G2 | — | 独立 |
-| P1-3 草稿箱同步 | `[ ]` | — | H1-H3 | — | 依赖凭证 + P0-4 |
-| P1-4 数据可信度 | `[ ]` | — | I1-I3 | — | 独立 |
-| P1-5 行动项关联 | `[ ]` | — | J1-J3 | — | 依赖 P1-4 |
+| P1-1 SSE 流式 | `[x]` 代码完成 + **14 例新单测**（10+2+2） | 本轮工作树 | F1-F4 | 代码级：`test/sse-stream.test.js` 10/10（帧编解码、跨 chunk 截断、心跳忽略、转义与半截转义、同名字面量跳过）+ `llm-stream` 10/10（含新增 `takeDelta` 2 例）+ 12 个改动文件语法门禁通过；F1/F2/F3 需真实 LLM 与浏览器，路由级 2 例需容器内跑 | 见 §8.1-18/19；回滚只需前端切回 `localApi('rewrite')` |
+| P1-2 长任务作业化 | `[x]` 代码完成 + **22 例新单测**（10+7+5） | 本轮工作树 | G1-G2 | 代码级：`test/jobs.test.js` 10/10（生命周期、逐项进度、TTL 过期、上限淘汰、运行中不清理、`run` 自动写回成败）+ `test/jobs-poll.test.js` 7/7（进度文案、终态返回、error 上抛带 `job`、容错上限、AbortError 立刻上抛、超时、可中断等待）+ 12 个改动文件语法门禁通过；G1 的路由级断言（提交耗时 <5s）与 G2（逐平台结果读回 `hot_batches`）需容器内跑 | 见 §8.1-20/21；同步版接口全部保留，回滚只需前端换回 `hot/keywords/sync`、`trackers/:id/sync\|diagnose` |
+| P1-3 草稿箱同步 | `[x]` 代码完成 + **21 例新单测**（17+4） | 本轮工作树 | H1-H3 | 代码级：`test/mp-publisher.test.js` 17/17（错误归类与 40164 IP 提取与 hint、图床判定、图片收集/改写/未托管检出、dataURL 解析、multipart 字节、按码点截断、草稿载荷、发前校验、H3 脱敏、**fake fetch 全链路**：2 张图转存 + 跳过已托管 + 封面素材 + `draft/add` 载荷 + 转存非图床即失败）+ 新增 4 例 `test/mp-format.routes.test.js`（401、H3 无 secret、H1 未配置 400+引导、正文缺失/超长 400）需容器内跑；7 个改动文件语法门禁通过 | 见 §8.1-22/23；真机 `draft/add` 需认证号 + IP 白名单，只创建草稿不群发，回滚只需移除前端两个按钮与三个路由 |
+| P1-4 数据可信度 | `[x]` 代码完成 + **12 例新单测**（9+2+1） | 本轮工作树 | I1-I3 | 代码级：`test/work-stats-plan.test.js` 9/9（指标逐项比较、无 workId/无指标不落点、首次与变化立即写、上一变化点后未变也留痕、限流窗口内不写、窗口可注入、0 是有效值、摘要计数口径、时钟回拨保守处理）+ `test/frontend-utils.test.js` 5/5（新增 `workPublishTs` 字段回退与秒/毫秒、`countObservingWorks` 48h 边界）+ `test/work-stats.test.js` 新增 I1 用例（连续两天不变 → 两点且 `unchanged` 可区分）需容器内跑；2 文件语法门禁通过 | 见 §8.1-25/26；`ensureColumn` 平滑升级，`recordWorkStats` 返回值改为结构化摘要（4 个调用点本就忽略返回值），回滚只需前端去掉两处提示 + 数据库列留着不用 |
+| P1-5 行动项关联 | `[x]` 代码完成 + **11 例新单测**（10+1） | 本轮工作树 | J1-J3 | 代码级：`test/weekly-actions.test.js` 10/10（id 精确匹配、只报名字回填、编造 id 丢锚点、账号无效时作品锚点一并丢、兼容纯字符串老格式、`null`/`无` 字面量、J1 比例 4/5=0.8 与空列表记 0、文本归一、上周已完成项去重、批次内自我重复且「已忽略」不封杀）+ `test/dashboard-overview.test.js` 新增集成用例（带锚点落库 + 重复被丢 + 比例 1/3）需容器内跑；7 文件语法门禁通过 | 见 §8.1-27；老数据锚点为 null 按无锚点渲染，回滚只需去掉前端点击与两列（列留着不用） |
 
-**测试基线变更（Batch 1-5 + 测试基建）**：+ `test/frontend-utils.test.js` 3、`test/single-flight.test.js` 6、`test/hot-window.test.js` 3、`test/hot-trends.test.js` 3、`test/env-file.test.js` 4、`test/mp-format.routes.test.js` 4（草稿）、`test/env-validation.test.js` 8（P0-5 数值校验）→ 全仓库静态计数 **167 → 198**（各 `test/*.test.js` 的 `^test(` 之和）。
-**本环境可运行验证（宿主，无 `node_modules`）**：**59 例全绿** —— `frontend-utils` 3、`frontend-utils-render` 4、`llm-stream` 8、`markdown-guard` 8、`single-flight` 6、`hot-window` 3、`wechat-format-kernel` 15（自动回退 vendor 同版本 marked）、`env-file` 4、`env-validation` 8。
+**测试基线变更（Batch 1-6 + 测试基建）**：+ `test/frontend-utils.test.js` 3、`test/single-flight.test.js` 6、`test/hot-window.test.js` 3、`test/hot-trends.test.js` 3、`test/env-file.test.js` 4、`test/mp-format.routes.test.js` 4（草稿）、`test/env-validation.test.js` 8（P0-5 数值校验）、`test/sse-stream.test.js` 10 + `test/llm-stream.test.js` +2 + `test/rewrite-stream.routes.test.js` 2（P1-1 流式）、`test/jobs.test.js` 10 + `test/jobs-poll.test.js` 7 + `test/jobs.routes.test.js` 5（P1-2 作业化）、`test/mp-publisher.test.js` 17 + `test/mp-format.routes.test.js` +4（P1-3 草稿箱同步）、`test/work-stats-plan.test.js` 9 + `test/frontend-utils.test.js` +2 + `test/work-stats.test.js` +1（P1-4 数据可信度）、`test/weekly-actions.test.js` 10 + `test/dashboard-overview.test.js` +1（P1-5 行动项关联化）→ 全仓库静态计数 **167 → 278**（各 `test/*.test.js` 的 `^test(` 之和）。
+**本环境可运行验证（宿主，无 `node_modules`）**：**93 例通过** —— `frontend-utils` 3、`frontend-utils-render` 4、`llm-stream` 10、`markdown-guard` 8、`single-flight` 6、`hot-window` 3、`wechat-format-kernel` 15（自动回退 vendor 同版本 marked）、`env-file` 4、`env-validation` 8、`sse-stream` 10、**`jobs` 10、`jobs-poll` 7**、`security-hardening` 5（该文件第 6 例要 spawn `node` 子进程，被沙箱以 EPERM 拒绝 → 文件退出码 1，属环境限制、与本轮改动无关）。
 **容器内实测（Docker，已装 `better-sqlite3`）**：`docker compose exec insprira npm test` → `tests 179 / pass 173 / fail 6`；其中 P0-3 的 C1-C3 六条断言**全绿**，6 条失败逐条定位为**环境项**（真实 `.env` 使密钥遮蔽失效 ×3、用户 `.env` 的 `INGEST_TOKEN` 为空按设计触发 503 ×2 连带、生产镜像缺 devDependency `marked` ×1），详见 §8.1-10/11；已在 `1d6aa52` 修好，**待你在容器内重跑确认**（先 `git -C "E:\insprira-main" merge --ff-only inspira-local-032e7c38-loc`）。
 **依赖环境待跑（我方沙箱限制）**：本 worktree 无 `better-sqlite3`，且沙箱禁止 npm 的 spawn（`EPERM`）→ 走 `_helper.js`/`_server.js` 的 15 个文件（含 P0-4 新增的 4 例草稿用例）只能在装了依赖的环境执行（`docker compose exec insprira npm test`）。
-**待人工验收**：A1/A3/A4、B1-B3（等待态与防重入的 UI 路径）、C4（趋势页空态）、D1/D2/D3（P0-4 直达 / 草稿 / 复制前自检的 UI 路径）、E1-E5（用量卡片 4 个数字对 SQL、并发闸与当日调用上屏、环境键保存、每日限额、两条审计记录），以及上面「容器内重跑」的全绿确认。
+**待人工验收**：A1/A3/A4、B1-B3（等待态与防重入的 UI 路径）、C4（趋势页空态）、D1/D2/D3（P0-4 直达 / 草稿 / 复制前自检的 UI 路径）、E1-E5（用量卡片 4 个数字对 SQL、并发闸与当日调用上屏、环境键保存、每日限额、两条审计记录）、**F1-F4（SSE 首字、正文增量增长、取消后无新增 `llm_usage`、流式套件与全量全绿）**、**G1-G2（点「刷新热点」时 Network 面板无 >30s 请求；页面显示失败平台与 `SELECT platform,status,item_count,error FROM hot_batches ORDER BY started_at DESC LIMIT 10` 一致）**，以及上面「容器内重跑」的全绿确认。
 
 ---
 
@@ -461,7 +471,7 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 
 > 补充：`/api/_/env` 的 GET/PUT 落在 `lib/routes/auth.js:164-172`（不是 `misc.js`），`updateEnvConfig` 会跳过空值（`lib/env.js:63`）——所以「设为 0」必须传字符串 `'0'`，且**无法通过设置页清空**某个键，这是既有语义，任务卡已按此设计。
 
-### 8.1 实施期新增的落地偏差（Batch 1-4 实际执行记录）
+### 8.1 实施期新增的落地偏差（Batch 1-8 实际执行记录）
 
 | # | 计划写法 | 实际发现 | 最终做法 |
 |---|---|---|---|
@@ -479,5 +489,15 @@ Batch 6  P1-1 SSE 流式（依赖 Batch 1）  →  P1-2 长任务作业化（独
 | 15 | P0-5 步骤 1：把 `LLM_MAX_TOKENS` 加进 `EDITABLE_ENV_KEYS` | `publicEnvConfig` 的秘密键正则是 `/KEY\|PASSWORD\|COOKIE\|TOKEN\|SECRET/` —— `LLM_MAX_TOKENS` 名字里含 **TOKEN**，会被当成密钥：设置页看不到当前值、只显示「留空保留原值」 | 抽出 `isSecretKey()` 保持「命中密钥类命名一律脱敏」的保守语义，仅对 `LLM_MAX_TOKENS` 显式豁免（它只是生成 token 数上限）并加进单测 |
 | 16 | P0-5 步骤 3：设置页接 `/api/_/stats` 的 `llm.live` / `llm.todayCalls` | `localApi` 只返回 `payload.data`，但 `/api/_/stats`（`lib/routes/misc.js:38-56`）是**无 `data` 包装**的裸对象 → 取 `stats.data.llm` 会得到 `undefined`（`js/api.js:140` 对 `data === undefined` 直接返回整个 payload） | 前端按 `stats.llm.live` / `stats.llm.todayCalls` 取值；用量与 stats 用 `Promise.all` 并行取，`stats` 失败只少一块 LLM 区块、不影响用量数字 |
 | 17 | P0-5 步骤 4 称「`ctx.logAction` 已注入（见 `lib/routes/misc.js:28`）」 | `misc.js:28` 只是 `tryRoute` 顶部的依赖注释；`server.js:840-846` 的 misc 组 ctx **实际从未传 `logAction`** → 只靠 `typeof logAction === 'function'` 守卫会**静默不写审计行**（E5「`action_logs` 各新增 1 行」必挂） | 在 `server.js` 的 misc 组 ctx 补 `logAction,`（灵感组本来就有，见 `:871`）；两个路由仍保留函数类型守卫，避免只调用单个路由组的测试桩缺依赖时炸掉 |
+| 18 | P1-1 步骤 3「增量渲染」 | 改写链路走 **JSON 模式**（`rewriteForPlatform` 要求输出 `{"title","intro","content"}`），流式增量是一段段 **JSON 文本** —— 直接贴进输出框全是引号与 `\n` 转义，用户看到的不是正文 | 前端新增纯函数 `extractPartialJsonField()`（`js/stream.js`）：边流边把 `content` 字段解出来实时预览，正确处理 `\n`/`\"`/`\uXXXX` 与「帧恰好截断在半截转义」（宁可少一个字也不吐半个汉字）；解不出来就退化成「已生成 N 字」进度，`done` 帧的整包结果**始终覆盖**预览 |
+| 19 | P1-1 步骤 3「中断处理」与 F3 口径 | 原等待条注释写的是「取消是止损不是退款：**服务端已发出的那次调用仍会跑完**」—— 若照此实现，F3「取消后无新增 `llm_usage`」永远不可能通过 | 给 `lib/llm.js` 增加外部 `signal` 支持：客户端断连 → 路由 `AbortController.abort()` → 上游 fetch 真被中断、`logLlmUsage` 不执行；取消被标记为 `isClientAbort`（不重试、不切备用模型、不报「超时」），并同步改写 `js/components.js` 的注释口径 |
+| 20 | P1-2 落点写「job 模式与 UI 照抄 `lib/routes/mp-whitelist.js:31` + `js/pages/dashboard.js:533-560`；进度落 `hot_batches.status/error/item_count`；job 状态过期清理复用 `setLocalData(..., expiresAt)`」 | 三处都对不上：① mp-whitelist 的 job 是**模块内私有 Map**，没有通用轮询接口，3 个慢动作各抄一遍会重复三份；② `hot_batches` 按**批次**记录、没有 jobId 字段，进度直接落进去会与「批次」语义打架；③ `setLocalData(..., expiresAt)` 是给**缓存**用的，每次进度更新都要写一行 `local_data`，正是计划自己担心的「无限增长」 | 新增 `lib/jobs.js`（纯内存作业存储：TTL 30 分钟、上限 50 条、运行中不清理、时钟与 ID 可注入）+ 通用 `GET /api/_/jobs/:id`；作业的逐平台结果改为**读回「作业开始后写入的 `hot_batches` 行」**（页面与 SQL 同源，G2 由结构保证），若窗口内无行则退回「每平台最近一次批次」以兼容复用 cron single-flight 的情况 |
+| 21 | P1-2 前端 4 个慢动作（刷新全网热点 / 单平台刷新 / 账号同步 / 账号诊断）原来都是「一个 HTTP 请求等到天荒地老」 | 作业化后「取消」只停止浏览器侧等待，**服务端作业会继续跑完并落库** —— 文案若写「已取消刷新」就是欺骗用户；另外前端各处的结果处理逻辑原本依赖同步接口的返回值 | 统一文案改为「已停止等待（服务端仍在后台刷新/同步/诊断）」；服务端把 `syncTracker`/`diagnoseAndStoreTracker` 的返回值放进 `job.result`，前端用 `job.result` 走**原有分支**，逻辑零改动、回滚只需换回同步版 URL |
+| 22 | P1-3 前置写「`lib/wechat-official.js:174` 导出面扩展（`getMpConfig/getAccessToken/mpError`）」，落点写「README/`THIRD_PARTY_NOTICES.md` 合规件」 | ① `mpError` 原本是 `wechat-official.js:26` 的**模块私有函数**，草稿箱同步要用同一套错误语义（40164 提取 IP、errcode 归类）；② `getMpConfig`/`getAccessToken` 本来就是**返回值**里的（`return { getMpConfig, getAccessToken, datacube, syncMpOfficialStats }`），只有 `mpError` 真缺；③ `THIRD_PARTY_NOTICES.md` **仓库里并不存在**（卡片假设有） | 抽出纯模块 `lib/mp-errors.js`（`mpError`/`classifyMpError`，无网络无 DB → 可离线单测，40164 提取 IP 首次有测试），`wechat-official.js` 改为 `require` 后转出，导出面即含 `mpError`；`THIRD_PARTY_NOTICES.md` 本次**新建**（AGPL 移植说明 + vendor 第三方 + 微信接口使用声明） |
+| 23 | P1-3 验收 H2 只写「草稿图片 100% `mmbiz.qpic.cn`」 | ① 微信正文图片接口 `cgi-bin/media/uploadimg` **只返回 URL、不给 `thumb_media_id`**，而草稿的封面是必填项 → 只做 H2 会卡在「草稿必填封面」；② 正文里已经是 mmbiz 的图重复上传既浪费配额又改变 URL；③ 正文无图又没指定封面时，若仍去建草稿必然失败 | 封面单独走 `cgi-bin/material/add_material`（永久素材）拿 `thumb_media_id`，未指定时默认取正文第一张图；已托管的 mmbiz/szmmbiz 图**跳过上传**并计入 `hostedSkippedCount`；正文无图且无封面 → 明确报 `MP_NO_COVER`（400 + 引导），不发必然失败的草稿；转存后**再跑一次** `findUnhostedImages` 兜底（任一张未托管就拒绝建草稿） |
+| 24 | P1-3 卡片未给 `draft/add` 各字段上限，实现时按「标题 64 / 作者 8」这类常见印象写会**直接踩坑** | 查官方 draft/add 文档（2026-07 口径）后实测口径为：`title` ≤**32 字**、`author` ≤**16 字**、`digest` ≤120 字（不填默认抓正文前 54 字）、`content` **少于 2 万字符且小于 1M**；文档同时明确「涉及图片 url 必须来源『上传图文消息内的图片获取URL』接口获取，**外部图片 url 将被过滤**」与「`thumb_media_id` 图文消息**必填**、必须是**永久 MediaID**」 | `LIMITS = { title: 32, author: 16, digest: 120, content: 20000 }` 并写进单测（`assert.deepEqual(pub.LIMITS, …)` 钉住官方数字，防止后续被「拍脑袋改回 64/8」）；`content` 校验按**正文 HTML 字符数**算并说明「内联样式也计入」；H2 的「外部图片会被过滤」与封面的「永久 MediaID」两条官方硬约束，正好分别落在「转存后复查」与「`material/add_material` 拿封面」上 —— 官方文档链接与逐字段对照表见 `docs/mp-draft-troubleshooting.md` |
+| 25 | P1-4 卡片把「相同指标也落一条同步事件」与「加 `unchanged` 标记列」写成**两个二选一的选项**，并只给 I1（≥2 个点且可区分「值未变」）一个验收 | 两者其实是**同一处改动**：只加列不落点 → 不变的那天依旧没有行，I1 依然不成立；只落点不加列 → 无法区分「涨没涨」，I1 也不成立。卡片还漏了真正的风险：CRON 半小时一轮，若「没变就无脑落点」，单篇作品一天会被灌 48 行噪声 | 改为「**没变也留痕 + 打标记 + 限流**」三件套：`ensureColumn` 加 `unchanged`，`recordWorkStats` 数据未变时也写一行并标 `unchanged=1`，但同一作品**每小时最多留一条**未变点（`UNCHANGED_MIN_GAP_MS`）；数据真变了永不受限流、立即落点。判定逻辑抽成纯模块 `lib/work-stats-plan.js`（`planStatWrite` 返回 `{write,unchanged,reason}`），因此「没涨 vs 没同步」的核心语义第一次有了离线单测 |
+| 26 | P1-4 卡片说「在 `js/pages/tracker.js`、`js/pages/dashboard.js` 展示 `observing` 篇数，数据来自 `lib/article-analysis.js:290,395`」 | 该数据只存在于 `my-accounts/:id/analyze-works` 的响应里；`trackers/:id/diagnose`（`diagnoseAndStoreTracker`）返回的是 `{report,tracker,analysis}`，**没有** `observing` 字段 → 照卡片「两页都用同一数据源」写会得到一个永远为 0 的展示 | 仪表盘账号卡片用 API 的 `observing`（内存缓存，点过「分析文章」后常驻显示，原来看一眼就消失的 toast 保留）；作品弹窗改为**客户端**按 48h 窗口自算观察中篇数（`js/utils.js` 的 `countObservingWorks`，与 `lib/article-analysis.js` 的 `MATURITY_MS` 同口径，作品发布时间沿用后端去重时的同一套字段回退链）—— 不为此改 tracker 诊断接口，也不引入新表 |
+| 27 | P1-5 的 J1「≥80% 行动项带 `account_id`」与 J3「已完成行动项不原样重复」在卡片里都只写了目标，没写**怎么达成**；实际看代码：prompt 的【各账号】只给了 `名字（平台）`，**根本没给账号 id**，模型不可能输出 id（J1 结构性不可达）；J3 那句「已完成的上周行动不要原样重复」当时**只是 system prompt 里的一句请求**，没有任何代码约束，也没人度量 | ① 让 J1 可达成且可验证：payload 每个账号补 `账号id=xxx`，`actions` 的 JSON 结构从字符串数组改成 `[{text,accountId,workId}]`，生成后统一走 `normalizeActionAnchors` —— id 精确匹配优先、退化为按账号名回填、**编造的 id 一律丢锚点**（宁可无锚点，不可跳错页），比例用 `actionAnchorRatio` 算出来返回并显示在卡片头「已关联 3/4」，空列表 ratio 记 0 而不是假装 100% | ② 让 J3 可验证：新增 `dedupeAgainstHistory`，以「去空白去标点 + 小写」的归一文本对比上周 `status='done'` 的项，命中即丢弃并在返回值里报 `droppedDuplicates`；刻意**只拦已完成项**（`dismissed` 不封杀、`pending` 可以重提，因为没做的建议本来就该再提一次） | ③ 一跳到位按锚点分级：有作品锚点 → `showDetail` 进作品详情；只有账号锚点 → 账号追踪页 + 直接打开该账号作品列表；无锚点 → 保持纯文本（不给你一个点了没反应的东西） |
 
 > **环境提示（非代码问题）**：若要用公众号插件上报 `/api/_/ingest/mp-stats`，需在 `.env` 填**非空** `INGEST_TOKEN`（当前为空，路由按设计返回 `503`）。验收 ingest 相关功能前要配好；与 P0 改造无关。

@@ -138,6 +138,39 @@ export const dateYmd = (offsetDays = 0) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
+// ============= 作品新鲜度（P1-4「观察中」口径） =============
+// 发布未满 48 小时的作品，数据还没成熟：读数低不能归因成「内容差」。
+// 与 lib/article-analysis.js 的 MATURITY_MS 同口径，前端用它做展示层提示。
+export const OBSERVE_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+// 作品发布时间 → 毫秒时间戳（0 表示拿不到）。
+// 各平台字段不同（抖音 publishTime/createTime、小红书 createTime/workPublishTime、公众号 publicTime…），
+// 这里沿用后端 listTrackerWorks 去重时的同一套回退链；秒级时间戳自动升位。
+export function workPublishTs(work) {
+  const raw = work?.publish_at ?? work?.publishAt ?? work?.publishTime ?? work?.workPublishTime
+    ?? work?.createTime ?? work?.publicTime;
+  if (raw == null || raw === '') return 0;
+  if (typeof raw === 'number') {
+    const ms = raw < 1e12 ? raw * 1000 : raw; // 10 位秒级 → 毫秒
+    return Number.isFinite(ms) ? ms : 0;
+  }
+  const text = String(raw).trim();
+  if (/^\d+$/.test(text)) {
+    const num = Number(text);
+    return num < 1e12 ? num * 1000 : num; // 字符串形式的秒级/毫秒级时间戳
+  }
+  const parsed = Date.parse(text.replace(/-/g, '/')); // Safari 不认 YYYY-MM-DD HH:mm
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+// 观察期篇数（发布未满 windowMs 的作品）。now 可注入 → 纯函数、可离线单测
+export function countObservingWorks(works = [], now = Date.now(), windowMs = OBSERVE_WINDOW_MS) {
+  return (Array.isArray(works) ? works : []).filter((work) => {
+    const ts = workPublishTs(work);
+    return ts > 0 && now - ts < windowMs;
+  }).length;
+}
+
 // ============= 剪贴板 =============
 export async function copyToClipboard(text, { onSuccess, onError } = {}) {
   try {

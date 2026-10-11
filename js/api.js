@@ -1,4 +1,5 @@
 import { API_CONF } from './config.js';
+import { parseSseFrames } from './stream.js';
 
 let unauthorizedHandler = null;
 const controllers = new Map();
@@ -134,9 +135,90 @@ export async function localApi(path, options = {}) {
   if (!response.ok || payload.ok === false) {
     throw new Error(payload.error || `本地服务请求失败（HTTP ${response.status}）`);
   }
-  // 无 data 包装的端点（/version /status /redfox/apply 等）保留 fallback；
-  // 注意：hot/list 类端点必须用 { data: hotListPayload(...) }，不能用 spread，
-  // 否则这里会把数组当 data 拆走，丢失 sourceMode/dataDate/cronExpr 等元数据
+  return unwrapLocalPayload(payload);
+}
+
+// P1-1：SSE 流式本地接口。与 localApi 共用 abortKey/controllers（取消按钮可中断连接），
+// 逐帧回调 onEvent({ event, data })，返回 done 帧拆信封后的结果。
+// 非 2xx、非 text/event-stream（端点不存在/被中间层降级）都直接抛错，交由调用方回落整包接口。
+export async function localApiStream(path, options = {}) {
+  const { method = 'POST', body, signal, abortKey, onEvent } = options;
+  let abortSignal = signal;
+  let ownedController = null;
+  if (abortKey) {
+    cancelApi(abortKey);
+    ownedController = new AbortController();
+    controllers.set(abortKey, ownedController);
+    abortSignal = signal ? AbortSignal.any([signal, ownedController.signal]) : ownedController.signal;
+  }
+  const releaseController = () => {
+    if (abortKey && controllers.get(abortKey) === ownedController) controllers.delete(abortKey);
+  };
+  let response;
+  try {
+    response = await fetch('/api/_/' + path.replace(/^\/+/, ''), {
+      method,
+      credentials: 'include',
+      headers: { Accept: 'text/event-stream', ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: abortSignal,
+    });
+  } catch (e) {
+    releaseController();
+    if (e.name === 'AbortError') throw e;
+    throw new Error(`网络错误: ${e.message}`);
+  }
+  if (response.status === 401) {
+    releaseController();
+    handleUnauthorized();
+    throw new Error('登录已过期，请重新登录');
+  }
+  const contentType = response.headers.get('Content-Type') || '';
+  if (!response.ok || !contentType.includes('text/event-stream')) {
+    releaseController();
+    const text = await response.text().catch(() => '');
+    throw new Error(text || `流式接口不可用（HTTP ${response.status}）`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let donePayload = null;
+  let failure = null;
+  const dispatch = frames => {
+    for (const frame of frames) {
+      if (onEvent) { try { onEvent(frame); } catch { /* 渲染异常不中断读取 */ } }
+      if (frame.event === 'done') donePayload = frame.data;
+      else if (frame.event === 'error') failure = new Error(frame.data?.error || '生成失败');
+      else if (frame.event === 'cancelled' && !failure) failure = Object.assign(new Error('已取消生成'), { name: 'AbortError' });
+    }
+  };
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parsed = parseSseFrames(buffer);
+      buffer = parsed.rest;
+      dispatch(parsed.frames);
+    }
+    const tail = decoder.decode();
+    if (tail) buffer += tail;
+    dispatch(parseSseFrames(buffer).frames);
+  } finally {
+    releaseController();
+  }
+  if (failure) throw failure;
+  if (!donePayload) throw new Error('流式连接中断（未收到完成事件）');
+  if (!donePayload.ok || donePayload.error) throw new Error(donePayload.error || '生成失败');
+  return unwrapLocalPayload(donePayload);
+}
+
+// 拆掉 { ok, data } 信封并透传约定好的顶层元数据。
+// 无 data 包装的端点（/version /status /redfox/apply /stats 等）原样返回整个 payload；
+// 注意：hot/list 类端点必须用 { data: hotListPayload(...) }，不能用 spread，
+// 否则这里会把数组当 data 拆走，丢失 sourceMode/dataDate/cronExpr 等元数据。
+function unwrapLocalPayload(payload) {
   if (payload.data === undefined) return payload;
 
   const data = payload.data;

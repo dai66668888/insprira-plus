@@ -70,18 +70,33 @@ function renderSummaryCard(summaryData, stats = {}, weekActions = []) {
   const actionItem = (a) => {
     const done = a.status === 'done';
     const dismissed = a.status === 'dismissed';
+    // P1-5 J2：带锚点的行动项可一跳到位 —— 有作品锚点进作品详情，只有账号锚点进该账号作品列表
+    const accountId = a.account_id ? String(a.account_id) : '';
+    const tracker = accountId ? LS.get('trackers', []).find(t => String(t.id) === accountId) : null;
+    const jump = accountId && !dismissed
+      ? (a.work_id && tracker?.plat
+        ? `data-action="gotoAction" data-account-id="${esc(accountId)}" data-work-id="${esc(a.work_id)}" data-plat="${esc(tracker.plat)}"`
+        : `data-action="gotoAction" data-account-id="${esc(accountId)}"`)
+      : '';
+    const textHtml = jump
+      ? `<button class="flex-1 min-w-0 transition" style="text-align:left" ${jump} title="跳到这条行动项对应的账号/作品">${esc(a.text)}<span class="ml-1" style="color:#d97706">→</span></button>`
+      : `<span class="flex-1 min-w-0">${esc(a.text)}</span>`;
     return `
       <li class="text-xs leading-relaxed flex items-start gap-1.5 group ${done ? 'text-gray-500 line-through' : dismissed ? 'text-gray-600' : 'text-gray-300'}">
         <button class="flex-shrink-0 mt-0.5 ${done ? 'text-emerald-400' : 'text-gray-500 hover:text-emerald-400'}" data-action="setActionStatus" data-id="${a.id}" data-status="${done ? 'pending' : 'done'}" title="${done ? '标记未做' : '标记完成'}">
           <i data-lucide="${done ? 'check-circle-2' : 'circle'}" class="w-3.5 h-3.5"></i>
         </button>
-        <span class="flex-1 min-w-0">${esc(a.text)}</span>
+        ${textHtml}
         ${!done && !dismissed ? `<button class="flex-shrink-0 text-gray-600 hover:text-gray-400 opacity-0 group-hover:opacity-100" data-action="setActionStatus" data-id="${a.id}" data-status="dismissed" title="忽略"><i data-lucide="x" class="w-3 h-3"></i></button>` : ''}
       </li>`;
   };
+  // 回退渲染（还没落库/刚生成）：优先用带锚点的 actionItems，其次旧的纯文本 actions
+  const fallbackActions = Array.isArray(summary?.actionItems) && summary.actionItems.length
+    ? summary.actionItems
+    : (summary?.actions || []).map(text => ({ text, account_id: '' }));
   const actionsHtml = weekActions.length
     ? weekActions.filter(a => a.status !== 'dismissed').map(actionItem).join('') || '<li class="text-xs text-gray-600">—</li>'
-    : (summary?.actions || []).map(a => `<li class="text-xs text-gray-300 leading-relaxed flex gap-1.5"><span class="text-amber-400 flex-shrink-0">▸</span>${esc(a)}</li>`).join('') || '<li class="text-xs text-gray-600">—</li>';
+    : fallbackActions.map(a => `<li class="text-xs text-gray-300 leading-relaxed flex gap-1.5"><span class="text-amber-400 flex-shrink-0">▸</span><span class="flex-1 min-w-0">${esc(a.text)}${a.account_id ? '<span class="ml-1" style="color:#d97706">已关联账号</span>' : ''}</span></li>`).join('') || '<li class="text-xs text-gray-600">—</li>';
 
   let body;
   if (summary) {
@@ -95,7 +110,7 @@ function renderSummaryCard(summaryData, stats = {}, weekActions = []) {
           <ul class="space-y-1.5">${(summary.keyProblems || []).map(p => `<li class="text-xs text-gray-300 leading-relaxed flex gap-1.5"><span class="text-red-400 flex-shrink-0">▸</span>${esc(p)}</li>`).join('') || '<li class="text-xs text-gray-600">—</li>'}</ul>
         </div>
         <div>
-          <div class="text-[10px] uppercase tracking-wider text-amber-400/80 mb-2">本周行动${weekActions.length ? `（${weekActions.filter(a => a.status === 'done').length}/${weekActions.length}）` : ''}</div>
+          <div class="text-[10px] uppercase tracking-wider text-amber-400/80 mb-2">本周行动${weekActions.length ? `（${weekActions.filter(a => a.status === 'done').length}/${weekActions.length}）` : ''}${summary.actionAnchor?.total ? `<span class="ml-1" style="color:#d97706">已关联 ${summary.actionAnchor.anchored}/${summary.actionAnchor.total}</span>` : ''}</div>
           <ul class="space-y-1.5">${actionsHtml}</ul>
         </div>
         <div>
@@ -250,6 +265,11 @@ function renderAccountRows(accounts = []) {
     const perfStr = acc.analyzed
       ? `<span class="text-emerald-400/80">${acc.hot} 爆</span><span class="text-gray-600 mx-1">·</span><span class="text-red-400/80">${acc.cold} 冷</span><span class="text-gray-600 mx-1">·</span><span class="text-gray-500">${acc.analyzed} 篇</span>`
       : '<span class="text-gray-600">未分析</span>';
+    // P1-4 I2：把「观察中 N 篇」摆上台面（原来只在 2.5 秒的 toast 里说过一次）
+    const observe = observingByAccount.get(String(acc.id));
+    const observeNote = observe?.observing
+      ? `<div class="text-[10px] mt-0.5" style="color:#d97706" title="发布未满 48 小时：数据未成熟，暂不评价（避免把「还没涨」误当成「表现差」）">观察中 ${observe.observing} 篇 · 未满 48h</div>`
+      : '';
 
     return `
       <div class="flex items-center gap-3 p-2.5 rounded-lg hover:bg-white/[0.03] transition cursor-pointer" data-action="gotoPage" data-page="tracker">
@@ -263,6 +283,7 @@ function renderAccountRows(accounts = []) {
             ${stalePill}${issuePill}
           </div>
           <div class="text-[10px] mt-0.5">${perfStr}</div>
+          ${observeNote}
         </div>
         <div class="flex-shrink-0 hidden sm:block">${spark}</div>
         <div class="flex-shrink-0 text-right w-16">
@@ -395,6 +416,11 @@ export async function renderFeedAndHistory() {
   if (document.getElementById('ops-account-rows')) await renderDashboard();
 }
 
+// P1-4 I2：「观察中（未满 48h）」篇数按账号缓存在内存里（会话级，不落库）。
+// 数据来自 my-accounts/:id/analyze-works 的响应（lib/article-analysis.js:395 的 observing）；
+// 缓存它是为了让重新渲染账号列表后这个数字还在，而不是随 toast 一起消失。
+const observingByAccount = new Map();
+
 // 文章级表现分析：RedFox 数据 + LLM 逐篇诊断选题/标题/内容
 export async function analyzeMyWorks(el, d) {
   const btn = el?.closest('button');
@@ -408,6 +434,8 @@ export async function analyzeMyWorks(el, d) {
   toast('正在分析文章表现（约 1-2 分钟）…', 'info');
   try {
     const result = await localApi(`my-accounts/${encodeURIComponent(d.id)}/analyze-works`, { method: 'POST' });
+    // 记下观察中篇数：随后 renderDashboard() 会重渲染账号列表，数字来自这个缓存
+    observingByAccount.set(String(d.id), { observing: result.observing || 0, analyzed: result.analyzed || 0 });
     if (!result.analyzed) toast(result.message || '没有可分析的作品', 'info');
     else toast(`已分析 ${result.analyzed} 篇文章${result.observing ? `，${result.observing} 篇未满 48h 观察中` : ''}`, 'success');
     if (result.mpSync?.errcode === 40164) {

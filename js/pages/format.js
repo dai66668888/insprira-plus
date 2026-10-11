@@ -134,6 +134,7 @@ export function renderFormat() {
     loadServerDraft(editor);
   }
   renderCategoryTabs();
+  loadMpConfigStatus(); // P1-3：进页面即显示公众号配置状态（未配置则禁用同步按钮并给引导）
   renderTemplateGrid();
   renderTweaksPanel();
   editor.addEventListener('input', () => {
@@ -720,6 +721,78 @@ function postProcessPreview(container) {
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
   });
+}
+
+// ============= 同步到公众号草稿箱（P1-3 / 方案 PR-3） =============
+// 配置状态：进页面就拉一次。未配置 → 禁用同步按钮并给出引导（H1），不是等到点了才报错。
+export async function loadMpConfigStatus() {
+  const statusEl = document.getElementById('formatMpStatus');
+  const btn = document.getElementById('formatMpBtn');
+  if (!statusEl) return;
+  try {
+    const cfg = await localApi('mp-format/config');
+    if (!cfg?.configured) {
+      statusEl.textContent = '公众号未配置';
+      if (btn) {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        btn.title = cfg?.hint || '未配置公众号：请在 .env 填 MP_APP_ID / MP_APP_SECRET';
+      }
+      return;
+    }
+    statusEl.textContent = `公众号 ${cfg.appId}${cfg.accountName ? ` · ${cfg.accountName}` : ''}`;
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.title = '把当前排版结果存进公众号草稿箱'; }
+  } catch {
+    statusEl.textContent = '';
+  }
+}
+
+// 把「当前排版结果」存进草稿箱。图片由服务端转存到微信图床（mmbiz.qpic.cn），
+// 本地截图（dataURL）同样支持；封面默认取正文第一张图转成永久素材。
+export async function syncDraftToMp(el) {
+  const editor = document.getElementById('formatEditor');
+  const title = (document.getElementById('formatTitle')?.value || '').trim();
+  const markdown = (editor?.value || '').trim();
+  if (!markdown) { toast('还没有可同步的内容', 'error'); return; }
+  if (!title) { toast('请先填标题：公众号草稿必须有标题', 'error'); return; }
+  // 微信 draft/add 限制：标题 ≤32 字（官方文档口径），提前拦下省得白跑一次同步
+  const titleLength = Array.from(title).length;
+  if (titleLength > 32) { toast(`标题 ${titleLength} 字，超过微信上限 32 字`, 'error'); return; }
+  const article = buildArticleHtml(markdown);
+  if (!article?.html) { toast('排版内核不可用，无法生成正文', 'error'); return; }
+  const busy = busyState(el?.parentElement || null, { label: '正在同步到草稿箱…', abortKey: 'mp-draft-sync', before: el });
+  try {
+    const result = await localApi('mp-format/sync-draft', {
+      method: 'POST',
+      body: { title, html: article.html },
+      abortKey: 'mp-draft-sync',
+    });
+    const warn = result.warnings?.length ? `；${result.warnings[0]}` : '';
+    toast(`已存入草稿箱：正文 ${result.imageCount} 张图（转存 ${result.uploadedCount} 张）${warn}`, 'success');
+    loadMpConfigStatus();
+  } catch (e) {
+    if (isAbortError(e)) toast('已停止等待（服务端可能仍在转存图片，稍后可在草稿箱查看）', 'info');
+    else toast(e.message, 'error');
+  } finally {
+    busy.stop();
+  }
+}
+
+// IP 白名单体检：40164 时把被拒 IP 直接说出来（避免用户对着「获取 access_token 失败」猜半天）
+export async function diagnoseMpIp() {
+  const statusEl = document.getElementById('formatMpStatus');
+  try {
+    const info = await localApi('mp-format/ip-diagnostic');
+    if (info?.healthy) {
+      if (statusEl) statusEl.textContent = '公众号接口连通正常';
+      toast(info.message || '公众号接口连通正常', 'success');
+      return;
+    }
+    if (statusEl) statusEl.textContent = info?.ip ? `出口 IP ${info.ip} 不在白名单` : 'IP 体检未通过';
+    toast(info?.hint || info?.message || 'IP 体检未通过', 'error');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
 }
 
 // ============= 复制排版 =============

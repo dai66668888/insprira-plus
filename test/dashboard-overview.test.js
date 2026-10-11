@@ -186,6 +186,38 @@ test('generateSummary 行动项落库 + 上周回顾入 prompt + 问题分布快
   cleanup(); cleanupActions();
 });
 
+test('P1-5：行动项带账号锚点落库（J1）+ 上周已完成项原样重复被丢弃（J3）', async () => {
+  cleanup(); cleanupActions();
+  seedAccount(ACC_A, null, '账号甲');
+  seedAnalysis(ACC_A, 'k2', { title: '冷门文', ratio: 0.3, performance: 'cold', mainIssue: 'topic', why: '选题太窄' });
+  const lastWeek = weekStartKey(Date.now() - 7 * 86400000);
+  const ts = new Date(`${lastWeek}T10:00:00`).getTime();
+  db.prepare("INSERT INTO weekly_actions (week, text, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+    .run(lastWeek, '重做选题库', 'done', ts, ts);
+
+  const { generateSummary } = make({
+    callLlmJson: async () => ({
+      overall: 'ok', actionReview: '', keyProblems: [], highlights: [],
+      actions: [
+        { text: '重做选题库。', accountId: String(ACC_A) }, // 只差标点的原样重复 → 丢掉
+        { text: '把标题改成数字型', accountId: '账号甲' },   // 模型只报名字 → 回填 id
+        { text: '加大更新频率', accountId: '' },            // 无锚点也保留（不丢建议）
+        { text: '给编造账号的建议', accountId: '999999' },  // 编造的 id → 丢锚点
+      ],
+    }),
+  });
+  const result = await generateSummary();
+  assert.equal(result.droppedDuplicates, 1, '上周已完成项被原样重复 → 丢弃 1 条');
+  assert.deepEqual(result.summary.actions, ['把标题改成数字型', '加大更新频率', '给编造账号的建议']);
+  assert.deepEqual(result.actionAnchor, { total: 3, anchored: 1, ratio: 1 / 3 });
+
+  const rows = listWeekActions(weekStartKey());
+  assert.deepEqual(rows.map(r => r.text), result.summary.actions);
+  assert.deepEqual(rows.map(r => r.account_id), [String(ACC_A), null, null], '只有回填成功的账号留下锚点');
+  assert.deepEqual(result.summary.actionItems.map(i => i.work_id), ['', '', '']);
+  cleanup(); cleanupActions();
+});
+
 test('getIssueTrend 有上周快照时给出差值', async () => {
   cleanup(); cleanupActions();
   const { setLocalData } = require('../lib/local-data');

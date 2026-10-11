@@ -8,9 +8,12 @@ const assert = require('node:assert/strict');
 
 let formatElapsed;
 let isAbortError;
+let workPublishTs;
+let countObservingWorks;
+let OBSERVE_WINDOW_MS;
 
 before(async () => {
-  ({ formatElapsed } = await import('../js/utils.js'));
+  ({ formatElapsed, workPublishTs, countObservingWorks, OBSERVE_WINDOW_MS } = await import('../js/utils.js'));
   ({ isAbortError } = await import('../js/api.js'));
 });
 
@@ -42,4 +45,40 @@ test('③ isAbortError 只认 AbortError（取消 ≠ 失败）', () => {
   assert.equal(isAbortError(null), false);
   assert.equal(isAbortError(undefined), false);
   assert.equal(isAbortError('AbortError'), false);
+});
+
+// ============= P1-4：「观察中」篇数（没涨 vs 没同步 的展示口径） =============
+test('④ workPublishTs 吃各平台字段与秒/毫秒两种时间戳，拿不到就返回 0', () => {
+  const ms = Date.UTC(2024, 2, 1, 2, 0, 0);
+  assert.equal(workPublishTs({ publishTime: ms }), ms);
+  assert.equal(workPublishTs({ publishTime: Math.floor(ms / 1000) }), ms, '10 位秒级自动升位');
+  assert.equal(workPublishTs({ publish_at: ms }), ms, '后端归一化字段优先');
+  assert.equal(workPublishTs({ publicTime: '2024-03-01 10:00' }), new Date('2024/03/01 10:00').getTime());
+  assert.equal(workPublishTs({ createTime: '1710000000000' }), 1710000000000);
+  assert.equal(workPublishTs({ workPublishTime: `${ms}` }), ms);
+  // 拿不到 / 非法值一律 0（调用方据此排除，而不是当成「刚发布」）
+  assert.equal(workPublishTs({}), 0);
+  assert.equal(workPublishTs(null), 0);
+  assert.equal(workPublishTs({ publishTime: '' }), 0);
+  assert.equal(workPublishTs({ publishTime: '不是时间' }), 0);
+  assert.equal(workPublishTs({ publishTime: Infinity }), 0);
+});
+
+test('⑤ countObservingWorks 按 48h 窗口计数（边界与字段回退）', () => {
+  assert.equal(OBSERVE_WINDOW_MS, 48 * 60 * 60 * 1000);
+  const now = Date.UTC(2024, 2, 10, 12, 0, 0);
+  const works = [
+    { publishTime: now - 60 * 60 * 1000 },              // 1 小时前 → 观察中
+    { createTime: now - 47 * 60 * 60 * 1000 },          // 47 小时前 → 观察中
+    { publicTime: now - 48 * 60 * 60 * 1000 },          // 恰好 48 小时 → 不算（窗口是「未满」）
+    { publishTime: now - 72 * 60 * 60 * 1000 },         // 3 天前 → 不算
+    { publishTime: now + 60 * 60 * 1000 },              // 未来时间（时钟偏差）→ 观察中
+    {},                                                 // 无时间 → 不算
+    { publishTime: 0 },                                 // 0 → 不算
+  ];
+  assert.equal(countObservingWorks(works, now), 3);
+  assert.equal(countObservingWorks([], now), 0);
+  assert.equal(countObservingWorks(null, now), 0);
+  assert.equal(countObservingWorks(works.slice(0, 4), now, 0), 0, '窗口可注入（0 → 都不算观察中）');
+  assert.equal(countObservingWorks(works, now, 100 * 24 * 60 * 60 * 1000), 5, '放宽窗口后连 48h 前的也算');
 });

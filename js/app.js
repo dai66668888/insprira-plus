@@ -16,7 +16,7 @@ import { renderSettings, openEnvModal, openRedfoxApply, saveEnvConfig, restartSe
 import { renderInspiration, renderInspirationCards, onInspirationFilterChange, trashInspiration, restoreInspiration, permanentlyDeleteInspiration, updateInspirationListStatus, updateTrashSelection, toggleAllTrash, batchDeleteTrash, toggleInspirationFavorite, feedbackInspiration, generateInspirations, updateInspirationStatus, sendIdeaToCreator, clearInspirationSelection, batchFavoriteInspirations, batchTrashInspirations, toggleInspirationSourceDropdown } from './pages/inspiration.js';
 import { renderKnowledgebase, renderLibrary, addToLibrary, removeFromLibrary, exportLibrary, switchKbTab, switchKbSource, renderKbLibrary, loadKbEntries, renderKbGrid, renderKbFolderTree, searchKb, openKbEntry, openKbEntryModal, analyzeKbEntry, showKbAnalysisResult, reanalyzeKbEntry, matchKbToInspirations, renderMatchedInspirations, linkKbMatchByIndex, openKbConfigModal, saveKbConfig, createKbEntry, submitKbEntry, linkKbToInspiration, linkKbPickerByIndex, sendKbToCreator, renderWersss, addWersssSub, loadWersssAvailable, selectWersssMp, searchWersssMp, confirmAddWersssSub, removeWersssSub, syncWersss, prefetchWersss, openWersssArticle, closeWersssArticleModal, selectKbFolder, toggleKbFolder } from './pages/knowledgebase.js';
 import { renderCreator, sendToCreator, sendDraftToFormat, doCheckWord, inspectSensitiveHtml, analyzeRewriteHotspots, openActionLogs, renderRewriteHotspots, selectRewriteHotspot, clearSelectedHotspot, doRewrite, copyRewrite, exportToKb, generateCover, clearCreatorSource } from './pages/creator.js';
-import { renderFormat, formatTool, formatLoadSample, formatClearDoc, formatCopyHtml, formatAiLayout, formatSelectCategory, formatSelectTemplate, formatResetThemeColor, formatInsertImage, formatPickLocalImage, formatInsertImageUrl } from './pages/format.js';
+import { renderFormat, formatTool, formatLoadSample, formatClearDoc, formatCopyHtml, formatAiLayout, formatSelectCategory, formatSelectTemplate, formatResetThemeColor, formatInsertImage, formatPickLocalImage, formatInsertImageUrl, syncDraftToMp, diagnoseMpIp } from './pages/format.js';
 import { renderMyAccounts, addMyAccount, submitMyAccount, removeMyAccount, editMyAccount, extractMyTracks, extractMyStyle, viewMyStyle, presetMyInspirations, createAutoConfigs } from './pages/my.js';
 import { renderSkills, filterSkills, openSkillDetail, openAgentWithSkill, checkSkillUpdates, updateCommunitySkillsUi, renderAgent, loadAgentThreads, saveAgentThreads, startNewAgentThread, switchAgentThread, clearCurrentAgentThread, deleteAgentThread, copySessionId, toggleResumeMode, renderAgentThreads, onAgentProviderChange, formatTime, copyAgentMessage, deleteAgentMessage, regenerateAgentMessage, toggleStreamingIndicator, handleAgentInputKeydown, renderAgentMessages, showSkillCommands, insertSkillCommand, sendAgentMessage, loadSkills, clearSkillCache, bindSkillToSource, reclassifySkills, bindSkillTabs, newCustomSkill, editCustomSkill, deleteCustomSkill, saveCustomSkill, refreshCustomSkills, renderCustomSkills, loadHubSkills, searchHubSkills, installHubSkill, uninstallHubSkill, renderSkillTemplates, generateFromTemplate } from './pages/agent.js';
 import { gotoPage, refreshCurrent, doGlobalSearch, toggleSidebar, openMobileSidebar, closeMobileSidebar } from './router.js';
@@ -270,6 +270,21 @@ registerAction('clearInspirationSelection', () => clearInspirationSelection());
 registerAction('batchFavoriteInspirations', () => batchFavoriteInspirations());
 registerAction('batchTrashInspirations', () => batchTrashInspirations());
 registerAction('showDetail', (_, d) => showDetail(d.plat, d.workId));
+  // P1-5 J2：周行动项一跳到位 —— 有作品锚点直接进作品详情；只有账号锚点则进账号追踪并打开该账号作品列表
+  registerAction('gotoAction', async (_, d) => {
+    const accountId = String(d?.accountId || '');
+    const workId = String(d?.workId || '');
+    const plat = String(d?.plat || '');
+    if (workId && plat) { await showDetail(plat, workId); return; }
+    if (!accountId) { toast('这条行动项没带账号锚点，先到账号追踪看看', 'info'); gotoPage('tracker'); return; }
+    gotoPage('tracker');
+    const tracker = LS.get('trackers', []).find(t => String(t.id) === accountId);
+    if (!tracker) { toast('这条行动项关联的账号已不在追踪列表里', 'info'); return; }
+    try {
+      const data = await localApi(`trackers/${encodeURIComponent(tracker.id)}/works`);
+      showTrackerWorksModal(tracker, data?.works || []);
+    } catch { /* 拉不到作品就停在账号追踪页 */ }
+  });
 registerAction('addToTracker', (_, d) => addToTracker(d.plat, d.author, d.authorId));
 registerAction('addToLibraryByKey', (_, d) => addToLibraryByKey(d.key));
 registerAction('sendToCreatorByKey', (_, d) => sendToCreatorByKey(d.key));
@@ -280,8 +295,8 @@ registerAction('refreshSearch', () => {
 });
 registerAction('removeTracker', (_, d) => removeTracker(d.id));
 registerAction('editTracker', (_, d) => editTracker(d.id));
-registerAction('syncHotKeywords', () => syncHotKeywords());
-registerAction('syncHotTab', (_, d) => syncHotTab(d.tab));
+registerAction('syncHotKeywords', (el) => syncHotKeywords(el));
+registerAction('syncHotTab', (el, d) => syncHotTab(d.tab, el));
 registerAction('toggleHotPlatformCron', (_, d) => toggleHotPlatformCron(d.cronId, d.enabled === 'true', d.tab));
 registerAction('closeHotTab', (_, d) => closeHotTab(d.cronId, d.tab));
 registerAction('analyzeTrends', (el, d) => analyzeTrends(d));
@@ -366,6 +381,8 @@ registerAction('formatTool', (el, d) => formatTool(d.tool));
 registerAction('formatLoadSample', () => formatLoadSample());
 registerAction('formatClearDoc', () => formatClearDoc());
 registerAction('formatCopyHtml', () => formatCopyHtml());
+registerAction('syncDraftToMp', (el) => syncDraftToMp(el));
+registerAction('diagnoseMpIp', () => diagnoseMpIp());
 registerAction('formatAiLayout', () => formatAiLayout());
 registerAction('formatSelectCategory', (el, d) => formatSelectCategory(d.cat));
 registerAction('formatSelectTemplate', (el, d) => formatSelectTemplate(d.id));

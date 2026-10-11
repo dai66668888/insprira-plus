@@ -196,6 +196,10 @@ const agentLib = require('./lib/agent').make({
 });
 const { listLocalAgents, executeAgent, runLocalAgent } = agentLib;
 const hotLib = require('./lib/hot');
+// P1-2 长任务作业化：热点刷新 / 账号同步 / 账号诊断改为「提交即返回 jobId + 轮询进度」，
+// 让任何 HTTP 请求都不再挂几十秒（验收 G1）。纯内存作业存储、不落库 ——
+// 作业是「这次点击」的上下文，进程重启即丢是可接受的，也避免把状态塞进 local_data 无限增长。
+const jobStore = require('./lib/jobs').makeJobStore();
 const {
   HOT_SOURCE_CONFIG, hotBatchId, saveHotBatch, latestHotBatch,
   platformCronId, hotListPayload, normalizeDailyPlatformItems,
@@ -857,9 +861,13 @@ async function handleLocalApi(req, res, url) {
   })) {
     return true;
   }
+  if (await require('./lib/routes/jobs').tryRoute(req, res, url, { jobs: jobStore })) {
+    return true;
+  }
   if (await require('./lib/routes/hot').tryRoute(req, res, url, {
     getHotTrends, analyzeHotTrendsLlm, hotListPayload,
     syncRealtimeHotspots, syncDailyPlatform, HOT_SOURCE_CONFIG,
+    jobs: jobStore,
   })) {
     return true;
   }
@@ -876,6 +884,7 @@ async function handleLocalApi(req, res, url) {
   if (await require('./lib/routes/trackers').tryRoute(req, res, url, {
     listTrackers, saveTracker, syncTracker, listTrackerWorks,
     diagnoseAndStoreTracker, listAccountSnapshots, getLocalData,
+    jobs: jobStore,
   })) {
     return true;
   }
@@ -929,7 +938,7 @@ async function handleLocalApi(req, res, url) {
   }
 
   // ========== 公众号排版助手（AI 一键排版） ==========
-  if (await require('./lib/routes/mp-format').tryRoute(req, res, url, { llm: llmInstance, logAction })) {
+  if (await require('./lib/routes/mp-format').tryRoute(req, res, url, { llm: llmInstance, logAction, mpPublisher })) {
     return true;
   }
 
@@ -1231,6 +1240,11 @@ const {
 
 // 微信公众平台官方数据统计（datacube）：认证号的权威 T+1 阅读数据
 const mpOfficial = require('./lib/wechat-official').make({ ENV_FILE });
+// 公众号草稿箱同步（P1-3）：复用 mpOfficial 的凭据与 token 缓存，只多出「图片转存 + draft/add」
+const mpPublisher = require('./lib/mp-publisher').make({
+  getMpConfig: mpOfficial.getMpConfig,
+  getAccessToken: mpOfficial.getAccessToken,
+});
 
 // 公众号 IP 白名单自动配置（40164 自救：puppeteer 驱动控制台 + 扫码核验）
 const mpWhitelist = require('./lib/mp-whitelist');

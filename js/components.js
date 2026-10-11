@@ -57,7 +57,9 @@ export function busyState(host, { label = '', abortKey = '', before = null, onCa
 
   cancel.addEventListener('click', () => {
     if (stopped) return;
-    // 取消是「止损」不是「退款」：中断的是浏览器侧等待，服务端已发出的那次调用仍会跑完
+    // 取消是「止损」不是「退款」：P1-1 之后服务端会随连接断开真正中断上游 LLM 调用
+    // （SSE 路由 res close → AbortController），本次调用不再写 llm_usage；
+    // 但上游服务商是否已计费不可控，所以措辞仍保留「止损」。
     cancel.disabled = true;
     cancel.textContent = '正在取消…';
     if (abortKey) cancelApi(abortKey);

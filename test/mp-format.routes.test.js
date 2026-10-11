@@ -140,3 +140,77 @@ test(`draft：超过 ${MAX_DRAFT_LENGTH} 字符返回 400 且报出上限`, asyn
   assert.equal(r.status, 400);
   assert.match(r.json.error, new RegExp(String(MAX_DRAFT_LENGTH)));
 });
+
+// ============= 公众号草稿箱同步（P1-3 / 方案 PR-3） =============
+// 这里只测「不需要真实公众号」的部分：鉴权、H1（未配置 → 400 + 引导）、H3（不泄露 secret）、
+// 输入校验。真链路（图片转存 + draft/add）在 test/mp-publisher.test.js 用 fake fetch 覆盖。
+function withoutMpEnv(fn) {
+  const saved = {
+    id: process.env.MP_APP_ID,
+    secret: process.env.MP_APP_SECRET,
+    name: process.env.MP_ACCOUNT_NAME,
+  };
+  delete process.env.MP_APP_ID;
+  delete process.env.MP_APP_SECRET;
+  delete process.env.MP_ACCOUNT_NAME;
+  return Promise.resolve()
+    .then(fn)
+    .finally(() => {
+      for (const [key, value] of [['MP_APP_ID', saved.id], ['MP_APP_SECRET', saved.secret], ['MP_ACCOUNT_NAME', saved.name]]) {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      }
+    });
+}
+
+test('sync-draft 未登录返回 401（鉴权在 server.js 全局，先于路由）', async () => {
+  const r = await req('/api/_/mp-format/sync-draft', {
+    method: 'POST', body: { title: '标题', html: '<p>正文</p>' },
+  });
+  assert.equal(r.status, 401);
+  const diag = await req('/api/_/mp-format/ip-diagnostic');
+  assert.equal(diag.status, 401);
+});
+
+test('config：H3 —— 只回报「配没配」，响应体里绝不出现 MP_APP_SECRET', async () => {
+  const secret = process.env.MP_APP_SECRET || '';
+  const r = await req('/api/_/mp-format/config', { headers: { Cookie: authCookie } });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.ok, true);
+  assert.equal(typeof r.json.data.configured, 'boolean');
+  assert.equal(typeof r.json.data.secretConfigured, 'boolean');
+  assert.equal('appSecret' in r.json.data, false, '响应对象不得有 appSecret 字段');
+  if (secret) {
+    assert.equal(r.body.includes(secret), false, '响应体不得包含真实 appSecret');
+  }
+  assert.equal(JSON.stringify(r.json.data).includes('SECRET'), false);
+});
+
+test('sync-draft：未配置公众号 → 400 + 可执行引导（H1），而非 500 或含糊报错', async () => {
+  await withoutMpEnv(async () => {
+    const r = await req('/api/_/mp-format/sync-draft', {
+      method: 'POST', body: { title: '标题', html: '<p>正文</p>' }, headers: { Cookie: authCookie },
+    });
+    assert.equal(r.status, 400);
+    assert.equal(r.json.code, 'MP_NOT_CONFIGURED');
+    assert.match(r.json.error, /MP_APP_ID/);
+    assert.match(r.json.error, /白名单/);
+
+    const diag = await req('/api/_/mp-format/ip-diagnostic', { headers: { Cookie: authCookie } });
+    assert.equal(diag.status, 400);
+    assert.equal(diag.json.code, 'MP_NOT_CONFIGURED');
+  });
+});
+
+test('sync-draft：正文缺失/超长返回 400（在联网之前拦下）', async () => {
+  const empty = await req('/api/_/mp-format/sync-draft', {
+    method: 'POST', body: { title: '标题' }, headers: { Cookie: authCookie },
+  });
+  assert.equal(empty.status, 400);
+  assert.match(empty.json.error, /正文 HTML/);
+
+  const tooLong = await req('/api/_/mp-format/sync-draft', {
+    method: 'POST', body: { title: '标题', html: 'x'.repeat(MAX_DRAFT_LENGTH + 1) }, headers: { Cookie: authCookie },
+  });
+  assert.equal(tooLong.status, 400);
+  assert.match(tooLong.json.error, new RegExp(String(MAX_DRAFT_LENGTH)));
+});

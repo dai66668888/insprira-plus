@@ -1,4 +1,5 @@
-import { api, localApi, isAbortError } from '../api.js';
+import { api, localApi, localApiStream, isAbortError } from '../api.js';
+import { extractPartialJsonField } from '../stream.js';
 import { LS } from '../state.js';
 import { esc, safeExternalUrl, proxyImage } from '../utils.js';
 import { platName } from '../config.js';
@@ -307,41 +308,87 @@ let rewriteBusy = null;
 export async function doRewrite() {
   const text = document.getElementById('creatorInput').value.trim();
   const resultEl = document.getElementById('rewriteResult');
+  const titleEl = document.getElementById('rewriteTitle');
+  const introEl = document.getElementById('rewriteIntro');
   if (!text) { toast('请先输入素材', 'error'); return; }
   // 防重入：LLM 生成耗时数十秒，连点会并行发起多条完整调用链（重复消耗 token 还互相触发限流）
   if (rewriteInFlight) { toast('正在生成中，请等待当前任务完成', 'info'); return; }
   const btn = document.getElementById('doRewriteBtn');
   rewriteInFlight = true;
   if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
+  // 上一版成稿快照：P1-1 的流式预览会实时写入正文框，取消/失败时必须能原样还原
+  const snapshot = {
+    title: titleEl?.value ?? '',
+    intro: introEl?.value ?? '',
+    content: resultEl?.value ?? '',
+  };
+  const restoreSnapshot = () => {
+    if (titleEl) titleEl.value = snapshot.title;
+    if (introEl) introEl.value = snapshot.intro;
+    if (resultEl) resultEl.value = snapshot.content;
+  };
   // 等待态：状态点 + 阶段文案 + 实时计时 + 取消。
-  // 不再把「正在生成标题…/正在调用 LLM…」写进三个输出框 —— 那是假进度（真实阶段不可知），
-  // 而且一旦失败/取消，占位文案已经把上一版可用成稿顶掉、无法恢复。
+  // 阶段文案只写等待条、不写输出框；但 P1-1 之后「已生成 N 字」是真实进度
+  // （来自服务端增量），正文框会在拿到增量后开始实时预览，取消时由上面的快照还原。
   rewriteBusy = busyState(resultEl?.parentElement || null, {
     label: '正在重构内容…',
     abortKey: 'creator-rewrite',
     before: resultEl,
   });
+  let streamBuffer = ''; // 累积服务端推来的 JSON 文本片段
+  let gotDelta = false;  // 是否已收到增量：决定失败时能否安全回落整包接口
   try {
     const styleProfile = await getSelectedStyleProfile();
     rewriteBusy?.setStage('正在调用 LLM 重构内容…');
-    const result = await localApi('rewrite', {
-      method: 'POST',
-      body: {
-        text,
-        platform: document.getElementById('rewritePlatform').value,
-        tone: document.getElementById('rewriteTone').value,
-        hotspot: selectedRewriteHotspot,
-        styleProfile,
-        mode: currentCreatorMode,
-      },
-      abortKey: 'creator-rewrite', // 取消按钮与切页（cancelAllApi）都能中断等待
-    });
-    document.getElementById('rewriteTitle').value = result.title || '';
-    document.getElementById('rewriteIntro').value = result.intro || '';
-    resultEl.value = result.content;
+    const body = {
+      text,
+      platform: document.getElementById('rewritePlatform').value,
+      tone: document.getElementById('rewriteTone').value,
+      hotspot: selectedRewriteHotspot,
+      styleProfile,
+      mode: currentCreatorMode,
+    };
+    let result = null;
+    try {
+      // 优先走 SSE：长文创作几十秒，增量可见，首字（TTFB）也显著更早
+      result = await localApiStream('rewrite/stream', {
+        method: 'POST',
+        body,
+        // 取消按钮与切页（cancelAllApi）都能中断连接，并让服务端随之中断上游调用
+        abortKey: 'creator-rewrite',
+        onEvent: frame => {
+          if (frame.event === 'delta') {
+            gotDelta = true;
+            streamBuffer += frame.data?.content || '';
+            // JSON 模式：边流边把 content 字段解出来，让正文实时可见
+            const preview = extractPartialJsonField(streamBuffer, 'content');
+            if (preview && resultEl) resultEl.value = preview;
+            rewriteBusy?.setStage(preview ? `正在生成正文…已 ${preview.length} 字` : '模型思考中…');
+          } else if (frame.event === 'attempt') {
+            // 第 N(>0) 次尝试 = 上一轮流到一半失败了：清空缓冲，避免两轮 JSON 片段拼在一起
+            if ((frame.data?.attempt ?? 0) > 0) { streamBuffer = ''; gotDelta = false; rewriteBusy?.setStage('模型重试中…'); }
+          } else if (frame.event === 'stage') {
+            rewriteBusy?.setStage(frame.data?.stage || '正在处理…');
+          }
+        },
+      });
+    } catch (streamError) {
+      if (isAbortError(streamError)) throw streamError;
+      // 只回落到「尚未收到任何增量」的情况：否则整包接口会再花一次 LLM 调用
+      if (gotDelta) throw streamError;
+      console.warn('[doRewrite] 流式改写不可用，回落整包接口：', streamError.message);
+      rewriteBusy?.setStage('流式通道不可用，改用整包模式…');
+      result = await localApi('rewrite', { method: 'POST', body, abortKey: 'creator-rewrite' });
+    }
+    if (!result) throw new Error('生成未返回结果');
+    // done 帧里的整包结果才是权威值：覆盖流式预览
+    if (titleEl) titleEl.value = result.title || '';
+    if (introEl) introEl.value = result.intro || '';
+    if (resultEl) resultEl.value = result.content;
     toast(`已使用 ${result.model} 完成重构${result.hotspot?.title ? '，标题和前言已结合热点' : ''}`, 'success');
   } catch (e) {
-    // 失败/取消一律保留上一版成稿：输出框只在成功时被新内容覆盖
+    // 失败/取消一律保留上一版成稿（流式预览可能已改写输出框，这里还原快照）
+    restoreSnapshot();
     if (isAbortError(e)) toast('已取消生成，上一版成稿已保留', 'info');
     else toast(e.message, 'error');
   } finally {
